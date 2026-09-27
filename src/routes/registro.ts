@@ -9,6 +9,7 @@ const registroSchema = z.object({
   esercizioId: z.number().int(),
   pesoUsato: z.number().positive(),
   repsFatte: z.number().int().positive(),
+  nota: z.string().optional(),
 });
 
 // Solo il CLIENTE registra i propri allenamenti — non ha senso che lo faccia il trainer.
@@ -18,7 +19,7 @@ router.post('/registro', autentica, richiedeRuolo('CLIENTE'), async (req, res) =
     res.status(400).json({ errori: risultato.error.issues });
     return;
   }
-  const { esercizioId, pesoUsato, repsFatte } = risultato.data;
+  const { esercizioId, pesoUsato, repsFatte, nota } = risultato.data;
   const clienteId = (req as any).userId as number;
 
   // Isolamento dati: l'esercizio deve appartenere a una scheda DI QUESTO cliente,
@@ -33,7 +34,7 @@ router.post('/registro', autentica, richiedeRuolo('CLIENTE'), async (req, res) =
   }
 
   const registro = await prisma.registroAllenamento.create({
-    data: { esercizioId, pesoUsato, repsFatte, clienteId },
+    data: { esercizioId, pesoUsato, repsFatte, nota, clienteId },
   });
 
   res.status(201).json(registro);

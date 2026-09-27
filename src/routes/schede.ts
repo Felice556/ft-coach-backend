@@ -8,6 +8,7 @@ const router = Router();
 const esercizioSchema = z.object({
   nome: z.string().min(1),
   videoUrl: z.string().url().optional(),
+  descrizione: z.string().optional(),
   serieTarget: z.number().int().positive(),
   repsTarget: z.number().int().positive(),
   recuperoSecondi: z.number().int().positive(),

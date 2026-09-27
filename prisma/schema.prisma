@@ -37,6 +37,7 @@ model Esercizio {
   id              Int     @id @default(autoincrement())
   nome            String
   videoUrl        String?
+  descrizione     String? // note libere del trainer: tecnica, tempo di isometria, avvertenze, ecc.
   serieTarget     Int
   repsTarget      Int
   recuperoSecondi Int
@@ -51,6 +52,7 @@ model RegistroAllenamento {
   id        Int      @id @default(autoincrement())
   pesoUsato Float
   repsFatte Int
+  nota      String? // commento libero del cliente al trainer su questa sessione (dolore, sensazioni, difficoltà...)
   data      DateTime @default(now())
 
   esercizioId Int
