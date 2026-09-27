@@ -1,0 +1,61 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Ruolo {
+  TRAINER
+  CLIENTE
+}
+
+model User {
+  id       Int      @id @default(autoincrement())
+  nome     String
+  email    String   @unique
+  password String
+  ruolo    Ruolo
+
+  // Un cliente possiede delle schede; un trainer non usa questo campo.
+  schede   Scheda[]
+
+  // Storico allenamenti: presente solo se ruolo = CLIENTE.
+  registri RegistroAllenamento[]
+}
+
+model Scheda {
+  id        Int         @id @default(autoincrement())
+  nome      String
+  clienteId Int
+  cliente   User        @relation(fields: [clienteId], references: [id])
+  esercizi  Esercizio[]
+}
+
+model Esercizio {
+  id              Int     @id @default(autoincrement())
+  nome            String
+  videoUrl        String?
+  serieTarget     Int
+  repsTarget      Int
+  recuperoSecondi Int
+
+  schedaId Int
+  scheda   Scheda @relation(fields: [schedaId], references: [id], onDelete: Cascade)
+
+  registri RegistroAllenamento[]
+}
+
+model RegistroAllenamento {
+  id        Int      @id @default(autoincrement())
+  pesoUsato Float
+  repsFatte Int
+  data      DateTime @default(now())
+
+  esercizioId Int
+  esercizio   Esercizio @relation(fields: [esercizioId], references: [id], onDelete: Cascade)
+
+  clienteId Int
+  cliente   User @relation(fields: [clienteId], references: [id])
+}
