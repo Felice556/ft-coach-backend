@@ -5,6 +5,7 @@ import { prisma } from './prisma.js';
 import authRouter from './routes/auth.js';
 import schedeRouter from './routes/schede.js';
 import registroRouter from './routes/registro.js';
+import presetRouter from './routes/preset.js';
 
 const app = express();
 app.use(cors());
@@ -19,6 +20,7 @@ app.get('/health', async (req, res) => {
 app.use(authRouter);
 app.use(schedeRouter);
 app.use(registroRouter);
+app.use(presetRouter);
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {

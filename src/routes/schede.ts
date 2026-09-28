@@ -42,7 +42,7 @@ router.post('/schede', autentica, richiedeRuolo('TRAINER'), async (req, res) => 
       clienteId,
       esercizi: { create: esercizi }, // crea scheda + esercizi in un'unica query annidata
     },
-    include: { esercizi: true },
+    include: { esercizi: { orderBy: { id: 'asc' } } },
   });
 
   res.status(201).json(scheda);
@@ -56,7 +56,7 @@ router.get('/schede', autentica, async (req, res) => {
   if (ruolo === 'CLIENTE') {
     const schede = await prisma.scheda.findMany({
       where: { clienteId: userId },
-      include: { esercizi: true },
+      include: { esercizi: { orderBy: { id: 'asc' } } },
     });
     res.json(schede);
     return;
@@ -66,36 +66,88 @@ router.get('/schede', autentica, async (req, res) => {
   const clienteIdQuery = req.query.clienteId ? Number(req.query.clienteId) : undefined;
   const schede = await prisma.scheda.findMany({
     where: clienteIdQuery ? { clienteId: clienteIdQuery } : undefined,
-    include: { esercizi: true },
+    include: { esercizi: { orderBy: { id: 'asc' } } },
   });
   res.json(schede);
 });
 
-const rinominaSchema = z.object({
-  nome: z.string().min(1, 'Il nome della scheda non può essere vuoto'),
+// In modifica, un esercizio può avere un id (esiste già) oppure no (appena aggiunto).
+const esercizioModificaSchema = esercizioSchema.extend({
+  id: z.number().int().optional(),
 });
 
-// Rinomina una scheda esistente (per aggiungere/rimuovere esercizi vedi le rotte su /esercizi).
+const modificaSchedaSchema = z.object({
+  nome: z.string().min(1, 'Il nome della scheda non può essere vuoto'),
+  clienteId: z.number().int().optional(),
+  // Se assente, la PUT fa solo la rinomina (compatibile con l'uso precedente).
+  esercizi: z.array(esercizioModificaSchema).min(1, 'Serve almeno un esercizio').optional(),
+});
+
+// Modifica completa di una scheda: nome, cliente assegnato ed elenco esercizi.
 router.put('/schede/:id', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
   const id = Number(req.params.id);
-  const risultato = rinominaSchema.safeParse(req.body);
+  const risultato = modificaSchedaSchema.safeParse(req.body);
   if (!risultato.success) {
     res.status(400).json({ errori: risultato.error.issues });
     return;
   }
+  const { nome, clienteId, esercizi } = risultato.data;
 
-  try {
-    const scheda = await prisma.scheda.update({
-      where: { id },
-      data: { nome: risultato.data.nome },
-      include: { esercizi: true },
-    });
-    res.json(scheda);
-  } catch {
-    // Prisma lancia un errore se l'id non esiste: lo intercettiamo per rispondere 404
-    // invece di un generico 500 (stesso pattern del task manager).
+  const esistente = await prisma.scheda.findUnique({ where: { id }, include: { esercizi: true } });
+  if (!esistente) {
     res.status(404).json({ errore: 'Scheda non trovata' });
+    return;
   }
+
+  if (clienteId !== undefined) {
+    const cliente = await prisma.user.findUnique({ where: { id: clienteId } });
+    if (!cliente || cliente.ruolo !== 'CLIENTE') {
+      res.status(400).json({ errore: 'clienteId non valido' });
+      return;
+    }
+  }
+
+  // Gli id mandati dal client devono appartenere a QUESTA scheda: altrimenti
+  // si potrebbe "rubare" e modificare l'esercizio di un'altra scheda.
+  const idEsistenti = new Set<number>(esistente.esercizi.map((e) => e.id));
+  if (esercizi?.some((e) => e.id !== undefined && !idEsistenti.has(e.id))) {
+    res.status(400).json({ errore: 'Esercizio non appartenente a questa scheda' });
+    return;
+  }
+
+  // Transazione: o vanno a buon fine tutte le operazioni, o nessuna.
+  // Evita schede "a metà" se qualcosa fallisce in mezzo.
+  const scheda = await prisma.$transaction(async (tx) => {
+    await tx.scheda.update({ where: { id }, data: { nome, clienteId } });
+
+    if (esercizi) {
+      const idMantenuti = new Set<number>(
+        esercizi.flatMap((e) => (e.id !== undefined ? [e.id] : []))
+      );
+
+      // 1) Esercizi tolti dal trainer: cancellati (con il loro storico, via cascade).
+      const daCancellare = [...idEsistenti].filter((eid) => !idMantenuti.has(eid));
+      if (daCancellare.length > 0) {
+        await tx.esercizio.deleteMany({ where: { id: { in: daCancellare } } });
+      }
+
+      for (const { id: esercizioId, ...dati } of esercizi) {
+        // Campi opzionali svuotati → null, altrimenti Prisma lascerebbe il vecchio valore.
+        const campi = { ...dati, videoUrl: dati.videoUrl ?? null, descrizione: dati.descrizione ?? null };
+        if (esercizioId !== undefined) {
+          // 2) Esercizi mantenuti: aggiornati sul posto → lo storico del cliente resta intatto.
+          await tx.esercizio.update({ where: { id: esercizioId }, data: campi });
+        } else {
+          // 3) Esercizi nuovi: creati.
+          await tx.esercizio.create({ data: { ...campi, schedaId: id } });
+        }
+      }
+    }
+
+    return tx.scheda.findUnique({ where: { id }, include: { esercizi: { orderBy: { id: 'asc' } } } });
+  });
+
+  res.json(scheda);
 });
 
 // Cancella la scheda. Grazie a onDelete: Cascade nello schema, Prisma cancella
