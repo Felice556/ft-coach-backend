@@ -26,6 +26,26 @@ model User {
 
   // Libreria di esercizi riutilizzabili: presente solo se ruolo = TRAINER.
   presetEsercizi EsercizioPreset[]
+
+  // Allenamenti chiusi con "Allenamento completato": presente solo se ruolo = CLIENTE.
+  sessioni SessioneAllenamento[]
+}
+
+// Un allenamento concluso dal cliente. I numeri (serie, volume) li calcola il
+// backend dalle serie registrate, non li manda il telefono: così il trainer
+// vede dati affidabili.
+model SessioneAllenamento {
+  id          Int      @id @default(autoincrement())
+  completataIl DateTime @default(now())
+  serieFatte  Int
+  serieTotali Int
+  volume      Float // somma di kg × reps della giornata
+
+  schedaId Int
+  scheda   Scheda @relation(fields: [schedaId], references: [id], onDelete: Cascade)
+
+  clienteId Int
+  cliente   User @relation(fields: [clienteId], references: [id])
 }
 
 // Un esercizio "modello" salvato una volta dal trainer e riutilizzabile in
@@ -47,6 +67,7 @@ model Scheda {
   clienteId Int
   cliente   User        @relation(fields: [clienteId], references: [id])
   esercizi  Esercizio[]
+  sessioni  SessioneAllenamento[]
 }
 
 model Esercizio {

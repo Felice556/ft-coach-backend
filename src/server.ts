@@ -6,6 +6,7 @@ import authRouter from './routes/auth.js';
 import schedeRouter from './routes/schede.js';
 import registroRouter from './routes/registro.js';
 import presetRouter from './routes/preset.js';
+import sessioniRouter from './routes/sessioni.js';
 
 const app = express();
 app.use(cors());
@@ -21,6 +22,7 @@ app.use(authRouter);
 app.use(schedeRouter);
 app.use(registroRouter);
 app.use(presetRouter);
+app.use(sessioniRouter);
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {

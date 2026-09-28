@@ -69,4 +69,48 @@ router.get('/registro/:esercizioId', autentica, async (req, res) => {
   res.json(storico);
 });
 
+// ---- Correzione di una serie già registrata (es. 60 kg scritto al posto di 65) ----
+// Il percorso è /registro/serie/:id (id della SERIE), diverso da /registro/:esercizioId
+// usato sopra, così i due id non si confondono.
+
+const correzioneSchema = z.object({
+  pesoUsato: z.number().positive(),
+  repsFatte: z.number().int().positive(),
+  nota: z.string().optional(),
+});
+
+router.put('/registro/serie/:id', autentica, richiedeRuolo('CLIENTE'), async (req, res) => {
+  const id = Number(req.params.id);
+  const clienteId = (req as any).userId as number;
+  const risultato = correzioneSchema.safeParse(req.body);
+  if (!risultato.success) {
+    res.status(400).json({ errori: risultato.error.issues });
+    return;
+  }
+
+  // updateMany con { id, clienteId }: aggiorna SOLO se la serie è di questo cliente.
+  // Se l'id è di qualcun altro, count sarà 0 e rispondiamo 404.
+  const { count } = await prisma.registroAllenamento.updateMany({
+    where: { id, clienteId },
+    data: { ...risultato.data, nota: risultato.data.nota || null },
+  });
+  if (count === 0) {
+    res.status(404).json({ errore: 'Serie non trovata' });
+    return;
+  }
+  res.json(await prisma.registroAllenamento.findUnique({ where: { id } }));
+});
+
+router.delete('/registro/serie/:id', autentica, richiedeRuolo('CLIENTE'), async (req, res) => {
+  const id = Number(req.params.id);
+  const clienteId = (req as any).userId as number;
+
+  const { count } = await prisma.registroAllenamento.deleteMany({ where: { id, clienteId } });
+  if (count === 0) {
+    res.status(404).json({ errore: 'Serie non trovata' });
+    return;
+  }
+  res.status(204).send();
+});
+
 export default router;
