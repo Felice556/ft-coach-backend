@@ -368,6 +368,40 @@ router.put('/esercizi/:id', autentica, richiedeRuolo('TRAINER'), async (req, res
   res.json(esercizio);
 });
 
+// Storico completo di una scheda per il trainer: tutti gli esercizi (anche quelli tolti,
+// se hanno serie registrate) con tutte le serie del cliente, dalla più vecchia.
+// Serve per i grafici "per esercizio" e per il dettaglio "per allenamento" (raggruppando per giorno).
+router.get('/schede/:id/storico', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
+  const id = leggiId(req.params.id, res);
+  if (id === null) return;
+  const scheda = await prisma.scheda.findUnique({
+    where: { id },
+    select: { id: true, nome: true, clienteId: true, archiviataIl: true, creataIl: true, cliente: { select: { nome: true } } },
+  });
+  if (!scheda) {
+    res.status(404).json({ errore: 'Scheda non trovata' });
+    return;
+  }
+  const esercizi = await prisma.esercizio.findMany({
+    where: {
+      schedaId: id,
+      // attivi sempre; quelli tolti solo se hanno serie (altrimenti non c'è niente da mostrare)
+      OR: [{ archiviatoIl: null }, { registri: { some: {} } }],
+    },
+    orderBy: { id: 'asc' },
+    include: {
+      serieExtra: { orderBy: { ordine: 'asc' } },
+      registri: {
+        // solo le serie del proprietario della scheda
+        where: { clienteId: scheda.clienteId },
+        orderBy: { data: 'asc' },
+        select: { id: true, pesoUsato: true, repsFatte: true, nota: true, data: true, esercizioId: true, clienteId: true },
+      },
+    },
+  });
+  res.json({ ...scheda, esercizi });
+});
+
 // Esercizi tolti da una scheda (archiviati): il trainer li vede nella modifica
 // della scheda e può rimetterli, con tutto lo storico del cliente ancora collegato.
 router.get('/schede/:id/esercizi-archiviati', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
