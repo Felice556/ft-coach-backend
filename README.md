@@ -1,5 +1,7 @@
 # FT Coach — Backend
 
+[![Tests](https://github.com/Felice556/ft-coach-backend/actions/workflows/test.yml/badge.svg)](https://github.com/Felice556/ft-coach-backend/actions/workflows/test.yml)
+
 REST API for **FT Coach**, a mobile-first web app for personal trainers and their clients: training plans, set-by-set workout logging, progress history and body composition.
 
 I'm a personal trainer and a junior developer: I built FT Coach for my own coaching work, and it's used by my real clients.
@@ -69,6 +71,30 @@ Security was a priority, because the app stores personal and health data:
 
 *(Route names are in Italian, like the app.)*
 
+## ✅ Tests
+
+**66 automated tests** (Vitest + Supertest) run against a real PostgreSQL database, on every push, with **GitHub Actions**.
+They call the real API routes and check the behaviour that matters most:
+
+| File | What it checks |
+|---|---|
+| `tests/auth.test.ts` | login and sign-up, forged or expired tokens, role taken from the database, password reset that logs out every device, temporary passwords, self-renewing sessions |
+| `tests/inviti-e-limiti.test.ts` | single-use invites (including two people using the same code at the same instant), expired/cancelled codes, invite-only mode, brute-force limits, no user enumeration |
+| `tests/schede.test.ts` | plans, set logging, completed workouts, **data isolation between clients**, archiving instead of deleting (no logged set is ever lost), trainer history, input validation, security headers |
+| `tests/misure.test.ts` | body weight and body-fat %: who can write what, who can see what, impossible values |
+
+**Safety first:** the tests wipe their database on every run, so they **refuse to start** unless the database is on `localhost` and has `test` in its name. The real database can't be touched by mistake.
+
+Run them locally:
+
+```bash
+# 1. once: create an empty PostgreSQL database called ftcoach_test
+# 2. if your local user/password isn't postgres/postgres, put the address in .env.test:
+#    TEST_DATABASE_URL="postgresql://user:password@localhost:5432/ftcoach_test"
+npm run test:db   # create the tables (again after every new migration)
+npm test          # run all the tests
+```
+
 ## 🚀 Run it locally
 
 You need Node.js 22+ and a PostgreSQL database.
@@ -102,6 +128,8 @@ npm run dev                 # http://localhost:3001
 | `npm run build` | generate the Prisma client and compile TypeScript |
 | `npm start` | run the compiled server |
 | `npm run db:deploy` | apply pending migrations |
+| `npm test` | run the automated tests |
+| `npm run test:db` | prepare the test database |
 
 ---
 
