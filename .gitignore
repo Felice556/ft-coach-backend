@@ -4,3 +4,4 @@ dist
 .env.test
 tsconfig.tsbuildinfo
 coverage
+recap-percorso-palestra.md
