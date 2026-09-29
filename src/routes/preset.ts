@@ -2,13 +2,14 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
 import { autentica, richiedeRuolo } from '../middleware/auth.js';
+import { leggiId } from '../utils.js';
 
 const router = Router();
 
 const presetSchema = z.object({
-  nome: z.string().min(1),
-  videoUrl: z.string().url().optional(),
-  descrizione: z.string().optional(),
+  nome: z.string().trim().min(1).max(100),
+  videoUrl: z.string().url().max(500).optional(),
+  descrizione: z.string().max(1000).optional(),
 });
 
 // Solo il trainer costruisce la propria libreria — ogni trainer vede solo i propri preset,
@@ -37,7 +38,8 @@ router.get('/preset-esercizi', autentica, richiedeRuolo('TRAINER'), async (req, 
 });
 
 router.delete('/preset-esercizi/:id', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
-  const id = Number(req.params.id);
+  const id = leggiId(req.params.id, res);
+  if (id === null) return;
   const trainerId = (req as any).userId as number;
 
   // where: { id, trainerId } invece di solo { id }: così un trainer non può
@@ -45,6 +47,42 @@ router.delete('/preset-esercizi/:id', autentica, richiedeRuolo('TRAINER'), async
   const risultato = await prisma.esercizioPreset.deleteMany({ where: { id, trainerId } });
   if (risultato.count === 0) {
     res.status(404).json({ errore: 'Preset non trovato' });
+    return;
+  }
+  res.status(204).send();
+});
+
+// ---------- Libreria note/tecniche (non legate a un esercizio) ----------
+
+const notaSchema = z.object({
+  testo: z.string().trim().min(1, 'La nota non può essere vuota').max(300),
+});
+
+router.post('/preset-note', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
+  const risultato = notaSchema.safeParse(req.body);
+  if (!risultato.success) {
+    res.status(400).json({ errori: risultato.error.issues });
+    return;
+  }
+  const trainerId = (req as any).userId as number;
+  const nota = await prisma.notaPreset.create({ data: { testo: risultato.data.testo, trainerId } });
+  res.status(201).json(nota);
+});
+
+router.get('/preset-note', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
+  const trainerId = (req as any).userId as number;
+  const note = await prisma.notaPreset.findMany({ where: { trainerId }, orderBy: { testo: 'asc' } });
+  res.json(note);
+});
+
+router.delete('/preset-note/:id', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
+  const id = leggiId(req.params.id, res);
+  if (id === null) return;
+  const trainerId = (req as any).userId as number;
+  // Stesso trucco dei preset esercizi: cancella solo se la nota è di questo trainer.
+  const { count } = await prisma.notaPreset.deleteMany({ where: { id, trainerId } });
+  if (count === 0) {
+    res.status(404).json({ errore: 'Nota non trovata' });
     return;
   }
   res.status(204).send();

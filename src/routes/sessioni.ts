@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
 import { autentica, richiedeRuolo } from '../middleware/auth.js';
+import { leggiIdFacoltativo } from '../utils.js';
 
 const router = Router();
 
@@ -32,10 +33,11 @@ router.post('/sessioni', autentica, richiedeRuolo('CLIENTE'), async (req, res) =
     return;
   }
 
-  // La scheda deve essere di questo cliente (isolamento dati, come sempre).
+  // La scheda deve essere di questo cliente (isolamento dati, come sempre) e attiva.
+  // Contano solo gli esercizi attivi: quelli tolti dal trainer non fanno più parte del programma.
   const scheda = await prisma.scheda.findFirst({
-    where: { id: schedaId, clienteId },
-    include: { esercizi: true },
+    where: { id: schedaId, clienteId, archiviataIl: null },
+    include: { esercizi: { where: { archiviatoIl: null }, include: { serieExtra: true } } },
   });
   if (!scheda) {
     res.status(404).json({ errore: 'Scheda non trovata' });
@@ -50,18 +52,34 @@ router.post('/sessioni', autentica, richiedeRuolo('CLIENTE'), async (req, res) =
   let serieFatte = 0;
   let serieTotali = 0;
   for (const es of scheda.esercizi) {
-    serieTotali += es.serieTarget;
+    // Serie previste = quelle normali + quelle "diverse" aggiunte dal trainer.
+    const previste = es.serieTarget + es.serieExtra.length;
+    serieTotali += previste;
     const fatte = registri.filter((r) => r.esercizioId === es.id).length;
-    serieFatte += Math.min(es.serieTarget, fatte);
+    serieFatte += Math.min(previste, fatte);
   }
   const volume = registri.reduce((acc, r) => acc + r.pesoUsato * r.repsFatte, 0);
 
-  const sessione = await prisma.sessioneAllenamento.create({
-    data: { schedaId, clienteId, serieFatte, serieTotali, volume },
-    // Stessa forma della GET, così il frontend usa un solo tipo.
-    include: { scheda: { select: { nome: true } }, cliente: { select: { nome: true } } },
+  // Se oggi questa scheda era già stata completata (es. il cliente l'ha riaperta per
+  // fare un'altra serie), AGGIORNIAMO quella sessione invece di crearne un doppione.
+  const includi = { scheda: { select: { nome: true } }, cliente: { select: { nome: true } } };
+  const giaCompletata = await prisma.sessioneAllenamento.findFirst({
+    where: { schedaId, clienteId, completataIl: { gte: inizio } },
+    orderBy: { completataIl: 'desc' },
   });
-  res.status(201).json(sessione);
+
+  const sessione = giaCompletata
+    ? await prisma.sessioneAllenamento.update({
+        where: { id: giaCompletata.id },
+        data: { serieFatte, serieTotali, volume, completataIl: new Date() },
+        include: includi,
+      })
+    : await prisma.sessioneAllenamento.create({
+        data: { schedaId, clienteId, serieFatte, serieTotali, volume },
+        // Stessa forma della GET, così il frontend usa un solo tipo.
+        include: includi,
+      });
+  res.status(giaCompletata ? 200 : 201).json(sessione);
 });
 
 // Elenco sessioni: il cliente vede le proprie; il trainer quelle di tutti
@@ -70,8 +88,15 @@ router.get('/sessioni', autentica, async (req, res) => {
   const userId = (req as any).userId as number;
   const ruolo = (req as any).ruolo as string;
 
-  const filtroCliente =
-    ruolo === 'CLIENTE' ? userId : req.query.clienteId ? Number(req.query.clienteId) : undefined;
+  // Il cliente vede solo le proprie; il trainer tutte, o quelle di ?clienteId=…
+  let filtroCliente: number | undefined;
+  if (ruolo === 'CLIENTE') {
+    filtroCliente = userId;
+  } else {
+    const daQuery = leggiIdFacoltativo(req.query.clienteId, res);
+    if (daQuery === null) return;
+    filtroCliente = daQuery;
+  }
 
   const sessioni = await prisma.sessioneAllenamento.findMany({
     where: filtroCliente !== undefined ? { clienteId: filtroCliente } : undefined,
@@ -85,18 +110,9 @@ router.get('/sessioni', autentica, async (req, res) => {
   res.json(sessioni);
 });
 
-// "Riprendi allenamento": il cliente annulla una chiusura fatta per sbaglio.
-// Le serie registrate NON vengono toccate: si cancella solo il segno di "concluso".
-router.delete('/sessioni/:id', autentica, richiedeRuolo('CLIENTE'), async (req, res) => {
-  const id = Number(req.params.id);
-  const clienteId = (req as any).userId as number;
-
-  const { count } = await prisma.sessioneAllenamento.deleteMany({ where: { id, clienteId } });
-  if (count === 0) {
-    res.status(404).json({ errore: 'Sessione non trovata' });
-    return;
-  }
-  res.status(204).send();
-});
+// Nota: NON esiste una rotta per cancellare un allenamento concluso.
+// "Riprendi allenamento" riapre soltanto la scheda: quando il cliente ripreme
+// "Allenamento completato", la POST qui sopra AGGIORNA la sessione di oggi.
+// Così nessun tocco sbagliato può far sparire un allenamento dallo storico.
 
 export default router;

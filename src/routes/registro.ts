@@ -2,14 +2,21 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
 import { autentica, richiedeRuolo } from '../middleware/auth.js';
+import { leggiId } from '../utils.js';
 
 const router = Router();
 
+// Peso 0 ammesso: esercizi a corpo libero (trazioni, piegamenti…).
+// Limiti alti ma realistici, per scartare errori di battitura evidenti (es. 6000 kg).
+const pesoSchema = z.number().min(0, 'Il peso non può essere negativo').max(1000);
+const repsSchema = z.number().int().positive().max(1000);
+const notaSchema = z.string().max(500).optional();
+
 const registroSchema = z.object({
-  esercizioId: z.number().int(),
-  pesoUsato: z.number().positive(),
-  repsFatte: z.number().int().positive(),
-  nota: z.string().optional(),
+  esercizioId: z.number().int().positive().max(2147483647),
+  pesoUsato: pesoSchema,
+  repsFatte: repsSchema,
+  nota: notaSchema,
 });
 
 // Solo il CLIENTE registra i propri allenamenti — non ha senso che lo faccia il trainer.
@@ -32,6 +39,11 @@ router.post('/registro', autentica, richiedeRuolo('CLIENTE'), async (req, res) =
     res.status(404).json({ errore: 'Esercizio non trovato' });
     return;
   }
+  // Niente nuove serie su esercizi o schede archiviati: non sono più nel programma del cliente.
+  if (esercizio.archiviatoIl || esercizio.scheda.archiviataIl) {
+    res.status(400).json({ errore: 'Questo esercizio non fa più parte della tua scheda' });
+    return;
+  }
 
   const registro = await prisma.registroAllenamento.create({
     data: { esercizioId, pesoUsato, repsFatte, nota, clienteId },
@@ -43,7 +55,8 @@ router.post('/registro', autentica, richiedeRuolo('CLIENTE'), async (req, res) =
 // Storico di un esercizio specifico, ordinato dal più vecchio al più recente
 // (comodo per disegnare poi un grafico di progressione).
 router.get('/registro/:esercizioId', autentica, async (req, res) => {
-  const esercizioId = Number(req.params.esercizioId);
+  const esercizioId = leggiId(req.params.esercizioId, res);
+  if (esercizioId === null) return;
   const clienteId = (req as any).userId as number;
   const ruolo = (req as any).ruolo as string;
 
@@ -63,7 +76,9 @@ router.get('/registro/:esercizioId', autentica, async (req, res) => {
   }
 
   const storico = await prisma.registroAllenamento.findMany({
-    where: { esercizioId },
+    // Doppia sicurezza: al cliente restituiamo SOLO le serie registrate da lui,
+    // anche se in futuro una scheda cambiasse proprietario.
+    where: ruolo === 'CLIENTE' ? { esercizioId, clienteId } : { esercizioId },
     orderBy: { data: 'asc' },
   });
   res.json(storico);
@@ -74,13 +89,14 @@ router.get('/registro/:esercizioId', autentica, async (req, res) => {
 // usato sopra, così i due id non si confondono.
 
 const correzioneSchema = z.object({
-  pesoUsato: z.number().positive(),
-  repsFatte: z.number().int().positive(),
-  nota: z.string().optional(),
+  pesoUsato: pesoSchema,
+  repsFatte: repsSchema,
+  nota: notaSchema,
 });
 
 router.put('/registro/serie/:id', autentica, richiedeRuolo('CLIENTE'), async (req, res) => {
-  const id = Number(req.params.id);
+  const id = leggiId(req.params.id, res);
+  if (id === null) return;
   const clienteId = (req as any).userId as number;
   const risultato = correzioneSchema.safeParse(req.body);
   if (!risultato.success) {
@@ -102,7 +118,8 @@ router.put('/registro/serie/:id', autentica, richiedeRuolo('CLIENTE'), async (re
 });
 
 router.delete('/registro/serie/:id', autentica, richiedeRuolo('CLIENTE'), async (req, res) => {
-  const id = Number(req.params.id);
+  const id = leggiId(req.params.id, res);
+  if (id === null) return;
   const clienteId = (req as any).userId as number;
 
   const { count } = await prisma.registroAllenamento.deleteMany({ where: { id, clienteId } });

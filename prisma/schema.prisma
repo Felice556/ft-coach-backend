@@ -27,8 +27,21 @@ model User {
   // Libreria di esercizi riutilizzabili: presente solo se ruolo = TRAINER.
   presetEsercizi EsercizioPreset[]
 
+  // Libreria di note/tecniche riutilizzabili su qualsiasi esercizio: solo TRAINER.
+  presetNote NotaPreset[]
+
   // Allenamenti chiusi con "Allenamento completato": presente solo se ruolo = CLIENTE.
   sessioni SessioneAllenamento[]
+}
+
+// Nota/tecnica salvata dal trainer, NON legata a un esercizio: si aggiunge con un
+// tocco alla nota di qualsiasi esercizio (es. "3 secondi di isometria in basso").
+model NotaPreset {
+  id    Int    @id @default(autoincrement())
+  testo String
+
+  trainerId Int
+  trainer   User @relation(fields: [trainerId], references: [id], onDelete: Cascade)
 }
 
 // Un allenamento concluso dal cliente. I numeri (serie, volume) li calcola il
@@ -41,8 +54,9 @@ model SessioneAllenamento {
   serieTotali Int
   volume      Float // somma di kg × reps della giornata
 
+  // Restrict: una scheda con allenamenti conclusi NON può essere cancellata dal database.
   schedaId Int
-  scheda   Scheda @relation(fields: [schedaId], references: [id], onDelete: Cascade)
+  scheda   Scheda @relation(fields: [schedaId], references: [id], onDelete: Restrict)
 
   clienteId Int
   cliente   User @relation(fields: [clienteId], references: [id])
@@ -64,6 +78,11 @@ model EsercizioPreset {
 model Scheda {
   id        Int         @id @default(autoincrement())
   nome      String
+  // Scheda archiviata: sparisce dalle viste ma resta nel database con tutto lo storico.
+  // null = attiva. È il modo in cui "cancelliamo" senza perdere dati.
+  archiviataIl DateTime?
+  // Quando è stata creata: serve al trainer per capire quali schede sono le più vecchie.
+  creataIl  DateTime  @default(now())
   clienteId Int
   cliente   User        @relation(fields: [clienteId], references: [id])
   esercizi  Esercizio[]
@@ -76,13 +95,32 @@ model Esercizio {
   videoUrl        String?
   descrizione     String? // note libere del trainer: tecnica, tempo di isometria, avvertenze, ecc.
   serieTarget     Int
-  repsTarget      Int
+  repsTarget      Int? // null = "Max" (a cedimento); con repsMax è il minimo dell'intervallo
+  repsMax         Int? // solo per gli intervalli: "6-9" → repsTarget 6, repsMax 9
   recuperoSecondi Int
+  // Esercizio tolto da una scheda: resta nel database (con le serie registrate), solo nascosto.
+  archiviatoIl    DateTime?
 
   schedaId Int
   scheda   Scheda @relation(fields: [schedaId], references: [id], onDelete: Cascade)
 
-  registri RegistroAllenamento[]
+  registri   RegistroAllenamento[]
+  serieExtra SerieExtra[]
+}
+
+// Serie aggiunte dal trainer DOPO le serie normali di un esercizio, con numeri propri.
+// Es. esercizio 2 × 10 (serieTarget = 2, repsTarget = 10) + una SerieExtra da
+// 15 reps con nota "drop set": il cliente fa 3 serie, la terza con i suoi valori.
+model SerieExtra {
+  id              Int     @id @default(autoincrement())
+  ordine          Int // posizione tra le serie extra (0, 1, 2…)
+  reps            Int? // null = "Max" (a cedimento); con repsMax è il minimo dell'intervallo
+  repsMax         Int? // solo per gli intervalli, come sopra
+  recuperoSecondi Int
+  nota            String? // es. "drop set", "a cedimento", "fermo 2s al petto"
+
+  esercizioId Int
+  esercizio   Esercizio @relation(fields: [esercizioId], references: [id], onDelete: Cascade)
 }
 
 model RegistroAllenamento {
@@ -92,8 +130,10 @@ model RegistroAllenamento {
   nota      String? // commento libero del cliente al trainer su questa sessione (dolore, sensazioni, difficoltà...)
   data      DateTime @default(now())
 
+  // Restrict: il database rifiuta di cancellare un esercizio che ha serie registrate.
+  // Seconda rete di sicurezza: anche un errore nel codice non può far sparire lo storico.
   esercizioId Int
-  esercizio   Esercizio @relation(fields: [esercizioId], references: [id], onDelete: Cascade)
+  esercizio   Esercizio @relation(fields: [esercizioId], references: [id], onDelete: Restrict)
 
   clienteId Int
   cliente   User @relation(fields: [clienteId], references: [id])
