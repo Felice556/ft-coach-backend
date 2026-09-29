@@ -24,7 +24,7 @@ app.set('trust proxy', 1);
 app.use(helmet());
 
 // In produzione accettiamo richieste solo dal frontend indicato in FRONTEND_URL
-// (es. l'indirizzo su Vercel); in sviluppo, se non è impostata, da qualsiasi origine.
+// (es. l'indirizzo su Cloudflare Pages); in sviluppo, se non è impostata, da qualsiasi origine.
 // exposedHeaders: il frontend (su un altro dominio) deve poter leggere il token rinnovato.
 app.use(
   cors({
