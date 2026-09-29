@@ -10,6 +10,7 @@ import registroRouter from './routes/registro.js';
 import presetRouter from './routes/preset.js';
 import sessioniRouter from './routes/sessioni.js';
 import invitiRouter from './routes/inviti.js';
+import misureRouter from './routes/misure.js';
 
 // Senza queste variabili il server non può funzionare: meglio fermarsi subito
 // all'avvio con un messaggio chiaro, invece di scoprirlo al primo login.
@@ -48,6 +49,7 @@ app.use(registroRouter);
 app.use(presetRouter);
 app.use(sessioniRouter);
 app.use(invitiRouter);
+app.use(misureRouter);
 
 // Gestore degli errori imprevisti (database irraggiungibile, bug, ecc.).
 // Express 5 ci porta qui anche gli errori delle rotte async: la singola richiesta

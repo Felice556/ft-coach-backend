@@ -43,6 +43,35 @@ model User {
   // Inviti creati da questo trainer / invito con cui si è registrato questo cliente.
   invitiCreati Invito[] @relation("InvitiCreati")
   invitoUsato  Invito?  @relation("InvitoUsato")
+
+  // Peso corporeo e % di massa grassa del cliente / misure inserite da questo utente.
+  misure         MisuraCorporea[] @relation("MisureDelCliente")
+  misureInserite MisuraCorporea[] @relation("MisureInserite")
+}
+
+enum TipoMisura {
+  PESO // kg, lo inserisce il cliente
+  MASSA_GRASSA // %, la inserisce il trainer
+}
+
+// Una misura del corpo in un giorno: al massimo una per tipo al giorno
+// (se si reinserisce lo stesso giorno, il valore viene corretto, non duplicato).
+model MisuraCorporea {
+  id           Int        @id @default(autoincrement())
+  tipo         TipoMisura
+  valore       Float
+  data         DateTime   @db.Date // solo il giorno, senza ora
+  creataIl     DateTime   @default(now())
+  aggiornataIl DateTime   @updatedAt
+
+  clienteId Int
+  cliente   User @relation("MisureDelCliente", fields: [clienteId], references: [id])
+
+  // Chi l'ha scritta (il cliente stesso o il trainer).
+  inseritaDaId Int
+  inseritaDa   User @relation("MisureInserite", fields: [inseritaDaId], references: [id])
+
+  @@unique([clienteId, tipo, data])
 }
 
 // Invito personale per registrarsi come cliente: il trainer lo crea e lo dà a una persona.
