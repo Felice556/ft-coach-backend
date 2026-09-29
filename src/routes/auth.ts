@@ -1,12 +1,14 @@
 import { Router } from 'express';
 import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
-import { autentica, richiedeRuolo } from '../middleware/auth.js';
+import { autentica, richiedeRuolo, creaToken } from '../middleware/auth.js';
+import { leggiId } from '../utils.js';
 
 const router = Router();
-const JWT_SECRET = process.env.JWT_SECRET!;
+
+// Stesse regole della registrazione per ogni nuova password.
+const passwordSchema = z.string().min(8, 'La password deve avere almeno 8 caratteri').max(72);
 
 const registerSchema = z.object({
   nome: z.string().trim().min(2, 'Il nome deve avere almeno 2 caratteri').max(60),
@@ -77,16 +79,118 @@ router.post('/login', async (req, res) => {
     return;
   }
 
-  // Il ruolo va DENTRO il token: è quello che richiedeRuolo() legge
-  // ad ogni richiesta successiva, senza dover interrogare di nuovo il database.
-  const token = jwt.sign(
-    { userId: utente.id, ruolo: utente.ruolo },
-    JWT_SECRET,
-    // 30 giorni: il cliente non deve rifare il login ogni settimana in palestra.
-    { expiresIn: '30d' }
-  );
+  // passwordTemporanea = true → il frontend mostra subito "Scegli una nuova password".
+  res.json({
+    token: creaToken(utente),
+    ruolo: utente.ruolo,
+    nome: utente.nome,
+    passwordTemporanea: utente.passwordTemporanea,
+  });
+});
 
-  res.json({ token, ruolo: utente.ruolo, nome: utente.nome });
+// ---------- Cambio della propria password (trainer e clienti) ----------
+
+const cambioPasswordSchema = z.object({
+  passwordAttuale: z.string().min(1, 'Scrivi la password attuale'),
+  nuovaPassword: passwordSchema,
+});
+
+router.put('/me/password', autentica, async (req, res) => {
+  const risultato = cambioPasswordSchema.safeParse(req.body);
+  if (!risultato.success) {
+    res.status(400).json({ errori: risultato.error.issues });
+    return;
+  }
+  const { passwordAttuale, nuovaPassword } = risultato.data;
+  const utente = await prisma.user.findUnique({ where: { id: (req as any).userId as number } });
+  if (!utente) {
+    res.status(404).json({ errore: 'Utente non trovato' });
+    return;
+  }
+  // Serve la password attuale: chi trova un telefono sbloccato non può cambiarla e chiudere fuori il proprietario.
+  if (!(await bcrypt.compare(passwordAttuale, utente.password))) {
+    res.status(400).json({ errore: 'La password attuale non è corretta' });
+    return;
+  }
+  if (await bcrypt.compare(nuovaPassword, utente.password)) {
+    res.status(400).json({ errore: 'La nuova password deve essere diversa da quella attuale' });
+    return;
+  }
+
+  // versioneToken + 1: gli altri dispositivi collegati vengono disconnessi.
+  const aggiornato = await prisma.user.update({
+    where: { id: utente.id },
+    data: {
+      password: await bcrypt.hash(nuovaPassword, 10),
+      passwordTemporanea: false,
+      versioneToken: { increment: 1 },
+    },
+  });
+  // Nuovo token per questo dispositivo, così chi ha appena cambiato la password resta dentro.
+  res.json({ token: creaToken(aggiornato) });
+});
+
+// ---------- Il trainer gestisce l'accesso dei clienti ----------
+// Il trainer NON vede mai le password (nel database c'è solo una versione cifrata
+// che non si può leggere): può solo impostarne una nuova, temporanea.
+
+// Trova un utente CLIENTE: un trainer non può toccare l'account di un altro trainer.
+async function trovaCliente(id: number) {
+  const utente = await prisma.user.findUnique({ where: { id } });
+  return utente?.ruolo === 'CLIENTE' ? utente : null;
+}
+
+router.put('/clienti/:id/password', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
+  const id = leggiId(req.params.id, res);
+  if (id === null) return;
+  const risultato = z.object({ nuovaPassword: passwordSchema }).safeParse(req.body);
+  if (!risultato.success) {
+    res.status(400).json({ errori: risultato.error.issues });
+    return;
+  }
+  if (!(await trovaCliente(id))) {
+    res.status(404).json({ errore: 'Cliente non trovato' });
+    return;
+  }
+  await prisma.user.update({
+    where: { id },
+    data: {
+      password: await bcrypt.hash(risultato.data.nuovaPassword, 10),
+      passwordTemporanea: true, // al prossimo accesso il cliente ne sceglie una sua
+      versioneToken: { increment: 1 }, // disconnette tutti i suoi dispositivi
+    },
+  });
+  res.status(204).send();
+});
+
+router.put('/clienti/:id/email', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
+  const id = leggiId(req.params.id, res);
+  if (id === null) return;
+  const risultato = z
+    .object({ email: z.string().trim().toLowerCase().email('Email non valida').max(254) })
+    .safeParse(req.body);
+  if (!risultato.success) {
+    res.status(400).json({ errori: risultato.error.issues });
+    return;
+  }
+  const { email } = risultato.data;
+  if (!(await trovaCliente(id))) {
+    res.status(404).json({ errore: 'Cliente non trovato' });
+    return;
+  }
+  const giaUsata = await prisma.user.findFirst({
+    where: { email: { equals: email, mode: 'insensitive' }, NOT: { id } },
+  });
+  if (giaUsata) {
+    res.status(409).json({ errore: 'Questa email è già usata da un altro account' });
+    return;
+  }
+  const aggiornato = await prisma.user.update({
+    where: { id },
+    data: { email },
+    select: { id: true, nome: true, email: true },
+  });
+  res.json(aggiornato);
 });
 
 // Elenco dei clienti per il trainer: serve al menu a tendina quando assegna una scheda,

@@ -18,6 +18,13 @@ model User {
   password String
   ruolo    Ruolo
 
+  // true dopo che il trainer ha reimpostato la password: al prossimo accesso
+  // l'utente deve sceglierne una sua (così il trainer non conosce quella definitiva).
+  passwordTemporanea Boolean @default(false)
+  // Sale di 1 a ogni cambio/reset della password: i token (accessi) vecchi smettono
+  // di funzionare, così un telefono perso o condiviso viene disconnesso.
+  versioneToken      Int     @default(0)
+
   // Un cliente possiede delle schede; un trainer non usa questo campo.
   schede   Scheda[]
 
