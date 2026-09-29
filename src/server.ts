@@ -10,6 +10,7 @@ import registroRouter from './routes/registro.js';
 import presetRouter from './routes/preset.js';
 import sessioniRouter from './routes/sessioni.js';
 import invitiRouter from './routes/inviti.js';
+import { HEADER_NUOVO_TOKEN } from './middleware/auth.js';
 import misureRouter from './routes/misure.js';
 
 // Senza queste variabili il server non può funzionare: meglio fermarsi subito
@@ -32,7 +33,13 @@ app.use(helmet());
 
 // In produzione accettiamo richieste solo dal frontend indicato in FRONTEND_URL
 // (es. l'indirizzo su Vercel); in sviluppo, se non è impostata, da qualsiasi origine.
-app.use(cors(process.env.FRONTEND_URL ? { origin: process.env.FRONTEND_URL.split(',') } : undefined));
+// exposedHeaders: il frontend (su un altro dominio) deve poter leggere il token rinnovato.
+app.use(
+  cors({
+    ...(process.env.FRONTEND_URL ? { origin: process.env.FRONTEND_URL.split(',') } : {}),
+    exposedHeaders: [HEADER_NUOVO_TOKEN],
+  }),
+);
 // Corpo delle richieste al massimo 100 KB: basta e avanza per una scheda, blocca invii enormi.
 app.use(express.json({ limit: '100kb' }));
 app.use(limiteGenerale);

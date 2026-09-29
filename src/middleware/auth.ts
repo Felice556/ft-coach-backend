@@ -10,7 +10,13 @@ export interface DatiToken {
   userId: number;
   ruolo: Ruolo;
   v?: number; // versione del token: deve coincidere con User.versioneToken (i token vecchi non ce l'hanno = 0)
+  iat?: number; // quando è stato creato (secondi), lo aggiunge jsonwebtoken
 }
+
+// Nome dell'header con cui mandiamo al telefono un token rinnovato.
+export const HEADER_NUOVO_TOKEN = 'X-Nuovo-Token';
+// Rinnoviamo al massimo una volta ogni 12 ore (non serve un token nuovo a ogni richiesta).
+const RINNOVA_DOPO_MS = 12 * 60 * 60 * 1000;
 
 // Crea il token di accesso (valido 30 giorni: il cliente non rifà il login ogni settimana in palestra).
 export function creaToken(utente: { id: number; ruolo: Ruolo; versioneToken: number }): string {
@@ -58,6 +64,17 @@ export async function autentica(req: Request, res: Response, next: NextFunction)
   (req as any).userId = payload.userId;
   // Il ruolo lo prendiamo dal database, non dal token: è sempre quello attuale.
   (req as any).ruolo = utente.ruolo;
+
+  // Sessione che si rinnova da sola: chi usa l'app riceve ogni tanto un token nuovo
+  // (di nuovo valido 30 giorni), così il login si rifà solo dopo 30 giorni SENZA usarla.
+  // Il cambio/reset password scollega comunque tutti: il token nuovo porta la stessa versione.
+  const creatoIl = (payload.iat ?? 0) * 1000;
+  if (!utente.passwordTemporanea && Date.now() - creatoIl > RINNOVA_DOPO_MS) {
+    res.setHeader(
+      HEADER_NUOVO_TOKEN,
+      creaToken({ id: payload.userId, ruolo: utente.ruolo, versioneToken: utente.versioneToken }),
+    );
+  }
   next();
 }
 
