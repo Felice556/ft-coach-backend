@@ -1,12 +1,15 @@
 import 'dotenv/config';
 import express, { NextFunction, Request, Response } from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import { limiteGenerale } from './limiti.js';
 import { prisma } from './prisma.js';
 import authRouter from './routes/auth.js';
 import schedeRouter from './routes/schede.js';
 import registroRouter from './routes/registro.js';
 import presetRouter from './routes/preset.js';
 import sessioniRouter from './routes/sessioni.js';
+import invitiRouter from './routes/inviti.js';
 
 // Senza queste variabili il server non può funzionare: meglio fermarsi subito
 // all'avvio con un messaggio chiaro, invece di scoprirlo al primo login.
@@ -19,10 +22,19 @@ for (const nome of ['DATABASE_URL', 'JWT_SECRET']) {
 
 const app = express();
 
+// Su Render le richieste arrivano tramite un "proxy": così Express legge l'IP vero del
+// visitatore (serve ai limiti sui tentativi di login, altrimenti tutti avrebbero lo stesso IP).
+app.set('trust proxy', 1);
+
+// Intestazioni di sicurezza standard (es. vietano di mostrare il server dentro altri siti).
+app.use(helmet());
+
 // In produzione accettiamo richieste solo dal frontend indicato in FRONTEND_URL
 // (es. l'indirizzo su Vercel); in sviluppo, se non è impostata, da qualsiasi origine.
 app.use(cors(process.env.FRONTEND_URL ? { origin: process.env.FRONTEND_URL.split(',') } : undefined));
-app.use(express.json());
+// Corpo delle richieste al massimo 100 KB: basta e avanza per una scheda, blocca invii enormi.
+app.use(express.json({ limit: '100kb' }));
+app.use(limiteGenerale);
 
 // Rotta di verifica: se risponde, server + connessione DB sono ok.
 app.get('/health', async (req, res) => {
@@ -35,6 +47,7 @@ app.use(schedeRouter);
 app.use(registroRouter);
 app.use(presetRouter);
 app.use(sessioniRouter);
+app.use(invitiRouter);
 
 // Gestore degli errori imprevisti (database irraggiungibile, bug, ecc.).
 // Express 5 ci porta qui anche gli errori delle rotte async: la singola richiesta

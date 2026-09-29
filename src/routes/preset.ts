@@ -2,13 +2,13 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
 import { autentica, richiedeRuolo } from '../middleware/auth.js';
-import { leggiId } from '../utils.js';
+import { leggiId, linkVideoSchema } from '../utils.js';
 
 const router = Router();
 
 const presetSchema = z.object({
   nome: z.string().trim().min(1).max(100),
-  videoUrl: z.string().url().max(500).optional(),
+  videoUrl: linkVideoSchema.optional(),
   descrizione: z.string().max(1000).optional(),
 });
 

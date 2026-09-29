@@ -1,4 +1,14 @@
 import { Response } from 'express';
+import { z } from 'zod';
+
+// Link a un video: solo indirizzi web normali (https:// o http://).
+// Blocca link "speciali" come javascript:… che, cliccati, eseguirebbero codice nel telefono del cliente.
+export const linkVideoSchema = z
+  .string()
+  .trim()
+  .max(500)
+  .url('Link video non valido')
+  .refine((u) => /^https?:\/\//i.test(u), 'Il link del video deve iniziare con https://');
 
 // Legge un id dall'URL (es. /schede/12). Se non è un intero positivo valido
 // (es. /schede/abc) risponde subito 400 e restituisce null: la rotta deve fermarsi.

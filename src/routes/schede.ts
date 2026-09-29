@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
 import { autentica, richiedeRuolo } from '../middleware/auth.js';
-import { leggiId, leggiIdFacoltativo } from '../utils.js';
+import { leggiId, leggiIdFacoltativo, linkVideoSchema } from '../utils.js';
 
 const router = Router();
 
@@ -24,7 +24,7 @@ type SerieExtraInput = z.infer<typeof serieExtraSchema>;
 
 const esercizioSchema = z.object({
   nome: z.string().trim().min(1, 'Il nome dell’esercizio non può essere vuoto').max(100),
-  videoUrl: z.string().url('Link video non valido').max(500).optional(),
+  videoUrl: linkVideoSchema.optional(),
   descrizione: z.string().max(1000).optional(),
   serieTarget: z.number().int().positive().max(20),
   repsTarget: repsSchema,

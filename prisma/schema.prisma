@@ -39,6 +39,29 @@ model User {
 
   // Allenamenti chiusi con "Allenamento completato": presente solo se ruolo = CLIENTE.
   sessioni SessioneAllenamento[]
+
+  // Inviti creati da questo trainer / invito con cui si è registrato questo cliente.
+  invitiCreati Invito[] @relation("InvitiCreati")
+  invitoUsato  Invito?  @relation("InvitoUsato")
+}
+
+// Invito personale per registrarsi come cliente: il trainer lo crea e lo dà a una persona.
+// Vale UNA volta sola e fino alla scadenza; non si cancella mai (resta lo storico di chi l'ha usato).
+model Invito {
+  id          Int       @id @default(autoincrement())
+  codice      String    @unique // es. "K7M3-Q9TX"
+  nota        String? // per chi è (es. "Marco Rossi"), la scrive il trainer
+  creatoIl    DateTime  @default(now())
+  scadeIl     DateTime
+  usatoIl     DateTime?
+  annullatoIl DateTime?
+
+  trainerId Int
+  trainer   User @relation("InvitiCreati", fields: [trainerId], references: [id])
+
+  // Chi si è registrato con questo invito (al massimo una persona).
+  usatoDaId Int?  @unique
+  usatoDa   User? @relation("InvitoUsato", fields: [usatoDaId], references: [id])
 }
 
 // Nota/tecnica salvata dal trainer, NON legata a un esercizio: si aggiunge con un
