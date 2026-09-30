@@ -256,6 +256,7 @@ describe('Robustezza e intestazioni di sicurezza', () => {
   it('intestazioni di sicurezza attive e server che non dice di essere Express', async () => {
     const r = await api().get('/health');
     expect(r.status).toBe(200);
+    expect(r.body).toEqual({ ok: true }); // nessun dato (es. numero di utenti) nell'indirizzo pubblico
     expect(r.headers['x-content-type-options']).toBe('nosniff');
     expect(r.headers['x-frame-options']).toBeTruthy();
     expect(r.headers['x-powered-by']).toBeUndefined();

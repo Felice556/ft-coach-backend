@@ -37,9 +37,11 @@ app.use(express.json({ limit: '100kb' }));
 app.use(limiteGenerale);
 
 // Rotta di verifica: se risponde, server + connessione DB sono ok.
+// Controlla anche che il database risponda (una query minima), ma non rivela nessun dato:
+// l'indirizzo è pubblico (lo usa cron-job.org per tenere sveglio il server).
 app.get('/health', async (req, res) => {
-  const numeroUtenti = await prisma.user.count();
-  res.json({ ok: true, utentiNelDb: numeroUtenti });
+  await prisma.$queryRaw`SELECT 1`;
+  res.json({ ok: true });
 });
 
 app.use(authRouter);
