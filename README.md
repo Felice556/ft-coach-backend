@@ -133,4 +133,10 @@ npm run dev                 # http://localhost:3001
 
 ---
 
+## 📄 License
+
+Code shared for portfolio purposes. **© 2026 Felice Russo — All rights reserved**: not licensed for reuse. See [LICENSE](LICENSE).
+
+---
+
 Made by **Felice Russo** · [LinkedIn](https://www.linkedin.com/in/felice-russo-web1/)
