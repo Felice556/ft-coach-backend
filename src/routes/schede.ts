@@ -29,9 +29,18 @@ const esercizioSchema = z.object({
   serieTarget: z.number().int().positive().max(20),
   repsTarget: repsSchema,
   repsMax: repsMaxSchema,
-  recuperoSecondi: z.number().int().min(0).max(3600), // 0 = nessun recupero (es. superserie)
+  recuperoSecondi: z.number().int().min(0).max(3600), // 0 = nessun recupero
   serieExtra: z.array(serieExtraSchema).max(10).default([]),
+  // Collegato all'esercizio successivo: SUPERSET (senza recupero in mezzo) o JUMPSET
+  // (con recupero). null = esercizio singolo.
+  collegamento: z.enum(['SUPERSET', 'JUMPSET']).nullable().default(null),
 });
+
+// Un collegamento "al successivo" sull'ultimo esercizio non ha senso: lo togliamo,
+// così nel database non restano collegamenti che non portano a niente.
+function senzaCollegamentoFinale<T extends { collegamento: 'SUPERSET' | 'JUMPSET' | null }>(esercizi: T[]): T[] {
+  return esercizi.map((e, i) => (i === esercizi.length - 1 ? { ...e, collegamento: null } : e));
+}
 
 // Un massimo ha senso solo se c'è un minimo ed è più grande: altrimenti lo ignoriamo,
 // così nel database non finiscono mai intervalli incoerenti tipo "Max-9" o "9-6".
@@ -79,7 +88,8 @@ router.post('/schede', autentica, richiedeRuolo('TRAINER'), async (req, res) => 
     res.status(400).json({ errori: risultato.error.issues });
     return;
   }
-  const { nome, clienteId, esercizi } = risultato.data;
+  const { nome, clienteId } = risultato.data;
+  const esercizi = senzaCollegamentoFinale(risultato.data.esercizi);
 
   // Verifica che il clienteId passato sia davvero un CLIENTE e non un altro trainer.
   if (!(await eUnCliente(clienteId))) {
@@ -181,7 +191,8 @@ router.put('/schede/:id', autentica, richiedeRuolo('TRAINER'), async (req, res) 
     res.status(400).json({ errori: risultato.error.issues });
     return;
   }
-  const { nome, clienteId, esercizi } = risultato.data;
+  const { nome, clienteId } = risultato.data;
+  const esercizi = risultato.data.esercizi && senzaCollegamentoFinale(risultato.data.esercizi);
 
   const esistente = await prisma.scheda.findUnique({
     where: { id },
@@ -334,6 +345,7 @@ router.delete('/schede/:id', autentica, richiedeRuolo('TRAINER'), async (req, re
 // Per la modifica singola le serie extra sono facoltative: se non le mandi, restano come sono.
 const modificaEsercizioSchema = esercizioSchema.partial().extend({
   serieExtra: z.array(serieExtraSchema).max(10).optional(),
+  collegamento: z.enum(['SUPERSET', 'JUMPSET']).nullable().optional(),
 });
 
 // Modifica un singolo esercizio (es. solo il recupero, senza toccare il resto della scheda).

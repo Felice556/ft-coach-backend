@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
 import { autentica, richiedeRuolo } from '../middleware/auth.js';
-import { leggiIdFacoltativo } from '../utils.js';
+import { leggiId, leggiIdFacoltativo } from '../utils.js';
 
 const router = Router();
 
@@ -108,6 +108,39 @@ router.get('/sessioni', autentica, async (req, res) => {
     },
   });
   res.json(sessioni);
+});
+
+// Feedback a fine allenamento: una nota e un voto di fatica da 1 a 10, entrambi facoltativi.
+// Mandare null (o una nota vuota) toglie quel valore.
+const feedbackSchema = z.object({
+  nota: z.string().trim().max(1000).nullable(),
+  fatica: z.number().int().min(1).max(10).nullable(),
+});
+
+// Solo il cliente scrive il feedback, e solo sui propri allenamenti.
+router.put('/sessioni/:id/feedback', autentica, richiedeRuolo('CLIENTE'), async (req, res) => {
+  const id = leggiId(req.params.id, res);
+  if (id === null) return;
+  const risultato = feedbackSchema.safeParse(req.body);
+  if (!risultato.success) {
+    res.status(400).json({ errori: risultato.error.issues });
+    return;
+  }
+  const clienteId = (req as any).userId as number;
+  const { count } = await prisma.sessioneAllenamento.updateMany({
+    where: { id, clienteId },
+    data: { nota: risultato.data.nota || null, fatica: risultato.data.fatica },
+  });
+  if (count === 0) {
+    // 404 anche se esiste ma è di un altro cliente: così non si scopre nemmeno che c'è.
+    res.status(404).json({ errore: 'Allenamento non trovato' });
+    return;
+  }
+  const sessione = await prisma.sessioneAllenamento.findUnique({
+    where: { id },
+    include: { scheda: { select: { nome: true } }, cliente: { select: { nome: true } } },
+  });
+  res.json(sessione);
 });
 
 // Nota: NON esiste una rotta per cancellare un allenamento concluso.

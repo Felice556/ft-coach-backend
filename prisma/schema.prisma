@@ -113,6 +113,10 @@ model SessioneAllenamento {
   serieTotali Int
   volume      Float // somma di kg × reps della giornata
 
+  // Feedback del cliente a fine allenamento (facoltativo, lo scrive lui).
+  nota   String? // com'è andata: sensazioni, dolori, difficoltà...
+  fatica Int? // voto da 1 (facilissimo) a 10 (al limite)
+
   // Restrict: una scheda con allenamenti conclusi NON può essere cancellata dal database.
   schedaId Int
   scheda   Scheda @relation(fields: [schedaId], references: [id], onDelete: Restrict)
@@ -148,6 +152,12 @@ model Scheda {
   sessioni  SessioneAllenamento[]
 }
 
+// Come un esercizio è collegato al SUCCESSIVO della scheda.
+enum TipoCollegamento {
+  SUPERSET // si passa subito al successivo, senza recupero in mezzo
+  JUMPSET // si alterna col successivo, con il recupero tra uno e l'altro
+}
+
 model Esercizio {
   id              Int     @id @default(autoincrement())
   nome            String
@@ -159,6 +169,9 @@ model Esercizio {
   recuperoSecondi Int
   // Esercizio tolto da una scheda: resta nel database (con le serie registrate), solo nascosto.
   archiviatoIl    DateTime?
+  // Collegato all'esercizio successivo (null = esercizio singolo). Più esercizi
+  // collegati di fila formano un gruppo: superset, jumpset, triset...
+  collegamento    TipoCollegamento?
 
   schedaId Int
   scheda   Scheda @relation(fields: [schedaId], references: [id], onDelete: Cascade)
