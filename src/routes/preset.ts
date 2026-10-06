@@ -6,11 +6,17 @@ import { leggiId, linkVideoSchema } from '../utils.js';
 
 const router = Router();
 
+const gruppoSchema = z.enum(['PETTO', 'DORSO', 'SPALLE', 'BRACCIA', 'GAMBE', 'ADDOME', 'CARDIO', 'ALTRO']);
+
 const presetSchema = z.object({
   nome: z.string().trim().min(1).max(100),
   videoUrl: linkVideoSchema.optional(),
   descrizione: z.string().max(1000).optional(),
+  gruppo: gruppoSchema.nullable().optional(), // gruppo muscolare (facoltativo)
 });
+
+// Modifica di un esercizio della libreria (es. spostarlo in un altro gruppo muscolare).
+const modificaPresetSchema = presetSchema.partial();
 
 // Solo il trainer costruisce la propria libreria — ogni trainer vede solo i propri preset,
 // non quelli di eventuali altri trainer (stesso principio di isolamento dati di sempre).
@@ -35,6 +41,24 @@ router.get('/preset-esercizi', autentica, richiedeRuolo('TRAINER'), async (req, 
     orderBy: { nome: 'asc' },
   });
   res.json(preset);
+});
+
+router.patch('/preset-esercizi/:id', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
+  const id = leggiId(req.params.id, res);
+  if (id === null) return;
+  const risultato = modificaPresetSchema.safeParse(req.body);
+  if (!risultato.success) {
+    res.status(400).json({ errori: risultato.error.issues });
+    return;
+  }
+  const trainerId = (req as any).userId as number;
+  // Solo i preset di questo trainer, come per la cancellazione.
+  const { count } = await prisma.esercizioPreset.updateMany({ where: { id, trainerId }, data: risultato.data });
+  if (count === 0) {
+    res.status(404).json({ errore: 'Preset non trovato' });
+    return;
+  }
+  res.json(await prisma.esercizioPreset.findUnique({ where: { id } }));
 });
 
 router.delete('/preset-esercizi/:id', autentica, richiedeRuolo('TRAINER'), async (req, res) => {

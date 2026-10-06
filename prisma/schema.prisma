@@ -128,11 +128,24 @@ model SessioneAllenamento {
 // Un esercizio "modello" salvato una volta dal trainer e riutilizzabile in
 // più schede/clienti, senza doverlo riscrivere ogni volta. Le sole serie/reps/
 // recupero restano decise scheda per scheda, perché cambiano da cliente a cliente.
+// Gruppo muscolare di un esercizio della libreria: serve a dividerla in sezioni.
+enum GruppoMuscolare {
+  PETTO
+  DORSO
+  SPALLE
+  BRACCIA
+  GAMBE
+  ADDOME
+  CARDIO
+  ALTRO
+}
+
 model EsercizioPreset {
   id          Int     @id @default(autoincrement())
   nome        String
   videoUrl    String?
   descrizione String?
+  gruppo      GruppoMuscolare? // null = non ancora assegnato (esercizi salvati prima dei gruppi)
 
   trainerId Int
   trainer   User @relation(fields: [trainerId], references: [id], onDelete: Cascade)

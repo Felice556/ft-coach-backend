@@ -66,14 +66,14 @@ Security was a priority, because the app stores personal and health data:
 | **Completed workouts** | `GET/POST /sessioni`, `PUT /sessioni/:id/feedback` |
 | **Body composition** | `GET /misure` · `PUT /misure` · `DELETE /misure/:id` |
 | **Invites** (trainer) | `GET/POST /inviti` · `POST /inviti/:id/annulla` |
-| **Libraries** (trainer) | `GET/POST /preset-esercizi` · `DELETE /preset-esercizi/:id` · `GET/POST /preset-note` · `DELETE /preset-note/:id` |
+| **Libraries** (trainer) | `GET/POST /preset-esercizi` · `PATCH/DELETE /preset-esercizi/:id` · `GET/POST /preset-note` · `DELETE /preset-note/:id` |
 | **Health check** | `GET /health` |
 
 *(Route names are in Italian, like the app.)*
 
 ## ✅ Tests
 
-**80 automated tests** (Vitest + Supertest) run against a real PostgreSQL database, on every push, with **GitHub Actions**.
+**85 automated tests** (Vitest + Supertest) run against a real PostgreSQL database, on every push, with **GitHub Actions**.
 They call the real API routes and check the behaviour that matters most:
 
 | File | What it checks |
@@ -82,6 +82,7 @@ They call the real API routes and check the behaviour that matters most:
 | `tests/inviti-e-limiti.test.ts` | single-use invites (including two people using the same code at the same instant), expired/cancelled codes, invite-only mode, brute-force limits, no user enumeration |
 | `tests/schede.test.ts` | plans, set logging, completed workouts, **data isolation between clients**, archiving instead of deleting (no logged set is ever lost), trainer history, input validation, security headers |
 | `tests/misure.test.ts` | body weight and body-fat %: who can write what, who can see what, impossible values |
+| `tests/libreria.test.ts` | exercise library grouped by muscle group: only the owner trainer can change it, unknown groups rejected |
 | `tests/superset-e-feedback.test.ts` | linking exercises into supersets/jumpsets, end-of-workout feedback (effort 1-10 and a note) that only the client can write and that survives re-closing the workout |
 
 **Safety first:** the tests wipe their database on every run, so they **refuse to start** unless the database is on `localhost` and has `test` in its name. The real database can't be touched by mistake.
