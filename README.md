@@ -4,7 +4,7 @@
 
 REST API for **FT Coach**, a mobile-first web app for personal trainers and their clients: training plans, set-by-set workout logging, progress history and body composition.
 
-I'm a personal trainer and a junior developer: I built FT Coach for my own coaching work, and it's used by my real clients.
+I'm a junior developer and I prepare personalized training plans: I built FT Coach to manage them, and it's used by my real clients.
 
 🔗 **[Live app](https://ft-coach.pages.dev)** · **[Frontend repo (with screenshots)](https://github.com/Felice556/ft-coach-frontend)**
 
@@ -28,14 +28,14 @@ I'm a personal trainer and a junior developer: I built FT Coach for my own coach
 ## 🗂️ Data model
 
 ```
-User (TRAINER | CLIENTE)
+User (TRAINER | CLIENTE) ── each client belongs to one trainer; one trainer is the admin
  ├── Scheda (training plan, per client)          ── archived, never lost
  │    └── Esercizio (sets, rep range, rest, notes, video)
  │         ├── SerieExtra (extra sets with their own reps/rest, e.g. drop sets)
  │         └── RegistroAllenamento (every set logged: weight, reps, note, date)
  ├── SessioneAllenamento (completed workouts: sets done, volume)
  ├── MisuraCorporea (body weight / body-fat %, one per type per day)
- ├── Invito (single-use sign-up codes)
+ ├── Invito (single-use sign-up codes: for clients, or for new trainers)
  └── EsercizioPreset / NotaPreset (trainer's reusable libraries)
 ```
 
@@ -43,12 +43,14 @@ User (TRAINER | CLIENTE)
 
 Security was a priority, because the app stores personal and health data:
 
+- **Multi-trainer, fully separated**: every client belongs to one trainer, and every trainer route is scoped to *their own* clients (plans, exercises, history, workouts, body measurements, invites, password resets). Another trainer gets a 404, so they can't even tell that the data exists. The rule lives in one place (`src/proprieta.ts`).
+- **One admin, who can't be created from outside**: new trainers can only sign up with a trainer invite, and only the admin can create those. The `admin` flag is read from the database on every request, it isn't in the token, and no route can write it: it was set once by a migration.
 - **Invite-only sign-up**: clients register with a single-use, expiring code (`XXXX-XXXX`, generated with `crypto.randomInt`, no ambiguous characters). The code is consumed **atomically** inside a transaction, so it can't be used twice even with simultaneous requests.
 - **Revocable sessions**: every token carries a version number checked against the database, so changing or resetting a password **logs out every device**. The role is always read from the database, never trusted from the token.
 - **Sessions that renew themselves**: active users receive a fresh token (via a response header) at most every 12 hours, so they never have to log in again, while inactive sessions still expire after 30 days.
 - **Temporary passwords**: when the trainer resets a client's password, the client must choose a new one before doing anything else. The trainer never sees the final password.
 - **Brute-force protection**: failed logins are limited per IP + email and per email (successful logins don't count, so clients on the same gym Wi-Fi don't block each other), plus limits on sign-up and password change.
-- **No user enumeration**: a dummy bcrypt comparison runs for unknown emails, so response times don't reveal which accounts exist; secret codes are compared with `timingSafeEqual`.
+- **No user enumeration**: a dummy bcrypt comparison runs for unknown emails, so response times don't reveal which accounts exist.
 - **Data isolation**: a client can only read and write their own data. Every route checks ownership and role, not just authentication.
 - **Input validation**: Zod schemas with realistic limits (e.g. body weight 20–350 kg, no future dates, only `http(s)` video links), 100 KB request size limit.
 - **HTTP hardening**: Helmet headers, CORS restricted to the frontend domains, `trust proxy` set correctly for rate limiting behind Render's proxy.
@@ -58,7 +60,7 @@ Security was a priority, because the app stores personal and health data:
 
 | Area | Endpoints |
 |---|---|
-| **Auth** | `POST /register` · `POST /login` · `GET /registrazione/info` · `PUT /me/password` |
+| **Auth** | `POST /register` · `POST /login` · `GET /registrazione/info` · `GET /me` · `PUT /me/password` |
 | **Clients** (trainer) | `GET /clienti` · `PUT /clienti/:id/email` · `PUT /clienti/:id/password` |
 | **Plans** | `GET/POST /schede` · `PUT /schede/:id` · `POST /schede/:id/archivia` · `POST /schede/:id/ripristina` · `DELETE /schede/:id` · `GET /schede/:id/storico` · `GET /schede/:id/esercizi-archiviati` |
 | **Exercises** | `PUT/DELETE /esercizi/:id` · `POST /esercizi/:id/ripristina` |
@@ -66,6 +68,7 @@ Security was a priority, because the app stores personal and health data:
 | **Completed workouts** | `GET/POST /sessioni`, `PUT /sessioni/:id/feedback` |
 | **Body composition** | `GET /misure` · `PUT /misure` · `DELETE /misure/:id` |
 | **Invites** (trainer) | `GET/POST /inviti` · `POST /inviti/:id/annulla` |
+| **Trainer invites** (admin only) | `GET/POST /admin/inviti-trainer` · `POST /admin/inviti-trainer/:id/annulla` |
 | **Libraries** (trainer) | `GET/POST /preset-esercizi` · `PATCH/DELETE /preset-esercizi/:id` · `GET/POST /preset-note` · `DELETE /preset-note/:id` |
 | **Health check** | `GET /health` |
 
@@ -73,7 +76,7 @@ Security was a priority, because the app stores personal and health data:
 
 ## ✅ Tests
 
-**85 automated tests** (Vitest + Supertest) run against a real PostgreSQL database, on every push, with **GitHub Actions**.
+**104 automated tests** (Vitest + Supertest) run against a real PostgreSQL database, on every push, with **GitHub Actions**.
 They call the real API routes and check the behaviour that matters most:
 
 | File | What it checks |
@@ -83,6 +86,7 @@ They call the real API routes and check the behaviour that matters most:
 | `tests/schede.test.ts` | plans, set logging, completed workouts, **data isolation between clients**, archiving instead of deleting (no logged set is ever lost), trainer history, input validation, security headers |
 | `tests/misure.test.ts` | body weight and body-fat %: who can write what, who can see what, impossible values |
 | `tests/libreria.test.ts` | exercise library grouped by muscle group: only the owner trainer can change it, unknown groups rejected |
+| `tests/trainer-separati.test.ts` | **two trainers side by side**: each one sees and changes only their own clients' data on every route, the admin included; only the admin can invite trainers; a trainer invite can't create a client and vice versa; nobody can make themselves admin |
 | `tests/superset-e-feedback.test.ts` | linking exercises into supersets/jumpsets, end-of-workout feedback (effort 1-10 and a note) that only the client can write and that survives re-closing the workout |
 
 **Safety first:** the tests wipe their database on every run, so they **refuse to start** unless the database is on `localhost` and has `test` in its name. The real database can't be touched by mistake.
@@ -112,7 +116,6 @@ Create a `.env` file:
 ```env
 DATABASE_URL="postgresql://user:password@localhost:5432/ftcoach"
 JWT_SECRET="a-long-random-string"
-CODICE_TRAINER="a-long-secret-code"   # only needed to register the trainer account, then remove it
 FRONTEND_URL="http://localhost:5173"  # comma-separated list of allowed origins
 INVITI_OBBLIGATORI=1                  # optional: clients can sign up only with an invite
 ```

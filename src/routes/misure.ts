@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
 import { autentica } from '../middleware/auth.js';
+import { clienteDelTrainer } from '../proprieta.js';
 import { leggiId, leggiIdFacoltativo } from '../utils.js';
 
 const router = Router();
@@ -42,7 +43,7 @@ const misuraSchema = z.object({
 const campi = { id: true, tipo: true, valore: true, data: true, clienteId: true } as const;
 
 // A chi si riferisce la richiesta: il cliente vede/scrive solo sé stesso;
-// il trainer deve indicare un cliente esistente.
+// il trainer deve indicare uno dei SUOI clienti.
 async function clienteDellaRichiesta(req: any, res: any, clienteIdRichiesto: number | null | undefined) {
   const utenteId = req.userId as number;
   if (req.ruolo === 'CLIENTE') return utenteId;
@@ -50,8 +51,7 @@ async function clienteDellaRichiesta(req: any, res: any, clienteIdRichiesto: num
     res.status(400).json({ errore: 'Indica il cliente' });
     return null;
   }
-  const cliente = await prisma.user.findUnique({ where: { id: clienteIdRichiesto }, select: { ruolo: true } });
-  if (!cliente || cliente.ruolo !== 'CLIENTE') {
+  if (!(await clienteDelTrainer(utenteId, clienteIdRichiesto))) {
     res.status(404).json({ errore: 'Cliente non trovato' });
     return null;
   }
@@ -115,9 +115,13 @@ router.delete('/misure/:id', autentica, async (req, res) => {
   const ruolo = (req as any).ruolo as 'CLIENTE' | 'TRAINER';
   const utenteId = (req as any).userId as number;
 
-  const misura = await prisma.misuraCorporea.findUnique({ where: { id } });
-  const puo =
-    misura && CHI_PUO_SCRIVERE[misura.tipo] === ruolo && (ruolo === 'TRAINER' || misura.clienteId === utenteId);
+  const misura = await prisma.misuraCorporea.findUnique({
+    where: { id },
+    include: { cliente: { select: { trainerId: true } } },
+  });
+  // Il cliente cancella solo le proprie; il trainer solo quelle dei suoi clienti.
+  const suo = ruolo === 'TRAINER' ? misura?.cliente.trainerId === utenteId : misura?.clienteId === utenteId;
+  const puo = misura && CHI_PUO_SCRIVERE[misura.tipo] === ruolo && suo;
   if (!misura || !puo) {
     res.status(404).json({ errore: 'Misura non trovata' });
     return;

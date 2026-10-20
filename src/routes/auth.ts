@@ -4,9 +4,9 @@ import { z } from 'zod';
 import { prisma } from '../prisma.js';
 import { autentica, richiedeRuolo, creaToken } from '../middleware/auth.js';
 import { leggiId } from '../utils.js';
-import { createHash, timingSafeEqual } from 'node:crypto';
 import { limiteCambioPassword, limiteLoginPerEmail, limiteLoginPerIp, limiteRegistrazione } from '../limiti.js';
 import { normalizzaCodice } from './inviti.js';
+import { clienteDelTrainer } from '../proprieta.js';
 
 const router = Router();
 
@@ -18,19 +18,11 @@ const registerSchema = z.object({
   email: z.string().trim().toLowerCase().email('Email non valida'),
   password: z.string().min(8, 'La password deve avere almeno 8 caratteri').max(72), // bcrypt usa solo i primi 72 byte
   ruolo: z.enum(['TRAINER', 'CLIENTE']).default('CLIENTE'),
-  codiceTrainer: z.string().optional(),
   codiceInvito: z.string().max(20).optional(),
 });
 
 // Con INVITI_OBBLIGATORI=1 (variabile su Render) un cliente può registrarsi solo con un invito.
 const invitiObbligatori = () => process.env.INVITI_OBBLIGATORI === '1';
-
-// Confronto "a tempo costante": non fa capire, dai tempi di risposta, quante lettere del codice sono giuste.
-function stessoTesto(a: string, b: string): boolean {
-  const ha = createHash('sha256').update(a).digest();
-  const hb = createHash('sha256').update(b).digest();
-  return timingSafeEqual(ha, hb);
-}
 
 // Serve alla schermata di registrazione: sapere se il campo "Codice invito" è obbligatorio.
 router.get('/registrazione/info', (_req, res) => {
@@ -43,18 +35,14 @@ router.post('/register', limiteRegistrazione, async (req, res) => {
     res.status(400).json({ errori: risultato.error.issues });
     return;
   }
-  const { nome, email, password, ruolo, codiceTrainer } = risultato.data;
+  const { nome, email, password, ruolo } = risultato.data;
   const codiceInvito = risultato.data.codiceInvito?.trim() ? normalizzaCodice(risultato.data.codiceInvito) : undefined;
 
-  // Un TRAINER vede i dati di tutti i clienti: si può creare solo con il codice segreto
-  // CODICE_TRAINER. Se la variabile non c'è (consigliato dopo aver creato il proprio account), nessuno può.
-  // Un CLIENTE vede solo i propri dati; con INVITI_OBBLIGATORI=1 serve un invito del trainer.
-  if (ruolo === 'TRAINER') {
-    const codice = process.env.CODICE_TRAINER;
-    if (!codice || !codiceTrainer || !stessoTesto(codiceTrainer, codice)) {
-      res.status(403).json({ errore: 'Registrazione come trainer non consentita' });
-      return;
-    }
+  // Un TRAINER si registra SOLO con un invito trainer, che può creare solo l'amministratore.
+  // Un CLIENTE si registra con l'invito del suo trainer (con INVITI_OBBLIGATORI=1 è obbligatorio).
+  if (ruolo === 'TRAINER' && !codiceInvito) {
+    res.status(403).json({ errore: 'Per registrarti come trainer serve un invito' });
+    return;
   }
 
   // Confronto senza distinguere maiuscole/minuscole: "Alessio@Test.com" = "alessio@test.com".
@@ -78,10 +66,25 @@ router.post('/register', limiteRegistrazione, async (req, res) => {
   let utente;
   try {
     utente = await prisma.$transaction(async (tx) => {
-      const nuovo = await tx.user.create({ data: { nome, email, password: passwordHash, ruolo } });
-      if (ruolo === 'CLIENTE' && codiceInvito) {
+      // A quale trainer appartiene il nuovo cliente:
+      // - con un invito: al trainer che l'ha creato;
+      // - senza invito (solo se gli inviti non sono obbligatori): all'amministratore.
+      // Un nuovo trainer non appartiene a nessuno. "admin" non si imposta MAI qui.
+      let trainerId: number | null = null;
+      if (codiceInvito) {
+        const invito = await tx.invito.findUnique({ where: { codice: codiceInvito } });
+        // L'invito deve essere del tipo giusto: un invito cliente non crea un trainer, e viceversa.
+        if (!invito || invito.ruolo !== ruolo) throw new Error('INVITO_NON_VALIDO');
+        if (ruolo === 'CLIENTE') trainerId = invito.trainerId;
+      } else if (ruolo === 'CLIENTE') {
+        const amministratore = await tx.user.findFirst({ where: { admin: true }, select: { id: true } });
+        trainerId = amministratore?.id ?? null;
+      }
+
+      const nuovo = await tx.user.create({ data: { nome, email, password: passwordHash, ruolo, trainerId } });
+      if (codiceInvito) {
         const { count } = await tx.invito.updateMany({
-          where: { codice: codiceInvito, usatoIl: null, annullatoIl: null, scadeIl: { gt: new Date() } },
+          where: { codice: codiceInvito, ruolo, usatoIl: null, annullatoIl: null, scadeIl: { gt: new Date() } },
           data: { usatoIl: new Date(), usatoDaId: nuovo.id },
         });
         if (count !== 1) throw new Error('INVITO_NON_VALIDO');
@@ -186,10 +189,10 @@ router.put('/me/password', limiteCambioPassword, autentica, async (req, res) => 
 // Il trainer NON vede mai le password (nel database c'è solo una versione cifrata
 // che non si può leggere): può solo impostarne una nuova, temporanea.
 
-// Trova un utente CLIENTE: un trainer non può toccare l'account di un altro trainer.
-async function trovaCliente(id: number) {
-  const utente = await prisma.user.findUnique({ where: { id } });
-  return utente?.ruolo === 'CLIENTE' ? utente : null;
+// Trova un CLIENTE di questo trainer: non si toccano gli account di altri trainer
+// né i clienti seguiti da un altro trainer.
+function trovaCliente(req: any, id: number) {
+  return clienteDelTrainer(req.userId as number, id);
 }
 
 router.put('/clienti/:id/password', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
@@ -200,7 +203,7 @@ router.put('/clienti/:id/password', autentica, richiedeRuolo('TRAINER'), async (
     res.status(400).json({ errori: risultato.error.issues });
     return;
   }
-  if (!(await trovaCliente(id))) {
+  if (!(await trovaCliente(req, id))) {
     res.status(404).json({ errore: 'Cliente non trovato' });
     return;
   }
@@ -226,7 +229,7 @@ router.put('/clienti/:id/email', autentica, richiedeRuolo('TRAINER'), async (req
     return;
   }
   const { email } = risultato.data;
-  if (!(await trovaCliente(id))) {
+  if (!(await trovaCliente(req, id))) {
     res.status(404).json({ errore: 'Cliente non trovato' });
     return;
   }
@@ -249,11 +252,20 @@ router.put('/clienti/:id/email', autentica, richiedeRuolo('TRAINER'), async (req
 // così non deve scrivere l'ID a mano (e non rischia di assegnarla alla persona sbagliata).
 router.get('/clienti', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
   const clienti = await prisma.user.findMany({
-    where: { ruolo: 'CLIENTE' },
+    where: { ruolo: 'CLIENTE', trainerId: (req as any).userId as number },
     select: { id: true, nome: true, email: true }, // mai la password
     orderBy: { nome: 'asc' },
   });
   res.json(clienti);
+});
+
+// Chi sono: serve al frontend per sapere, ad esempio, se mostrare la sezione amministratore.
+router.get('/me', autentica, async (req, res) => {
+  const utente = await prisma.user.findUnique({
+    where: { id: (req as any).userId as number },
+    select: { id: true, nome: true, ruolo: true, admin: true }, // mai la password
+  });
+  res.json(utente);
 });
 
 export default router;

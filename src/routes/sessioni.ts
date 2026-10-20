@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../prisma.js';
 import { autentica, richiedeRuolo } from '../middleware/auth.js';
 import { leggiId, leggiIdFacoltativo } from '../utils.js';
@@ -82,24 +83,24 @@ router.post('/sessioni', autentica, richiedeRuolo('CLIENTE'), async (req, res) =
   res.status(giaCompletata ? 200 : 201).json(sessione);
 });
 
-// Elenco sessioni: il cliente vede le proprie; il trainer quelle di tutti
-// (o di un cliente con ?clienteId=), con nome cliente e nome scheda.
+// Elenco sessioni: il cliente vede le proprie; il trainer quelle dei SUOI clienti
+// (o di uno solo con ?clienteId=), con nome cliente e nome scheda.
 router.get('/sessioni', autentica, async (req, res) => {
   const userId = (req as any).userId as number;
   const ruolo = (req as any).ruolo as string;
 
-  // Il cliente vede solo le proprie; il trainer tutte, o quelle di ?clienteId=…
-  let filtroCliente: number | undefined;
+  // Il cliente vede solo le proprie; il trainer quelle dei suoi clienti, o di ?clienteId=…
+  let filtro: Prisma.SessioneAllenamentoWhereInput;
   if (ruolo === 'CLIENTE') {
-    filtroCliente = userId;
+    filtro = { clienteId: userId };
   } else {
     const daQuery = leggiIdFacoltativo(req.query.clienteId, res);
     if (daQuery === null) return;
-    filtroCliente = daQuery;
+    filtro = { cliente: { trainerId: userId }, ...(daQuery !== undefined ? { clienteId: daQuery } : {}) };
   }
 
   const sessioni = await prisma.sessioneAllenamento.findMany({
-    where: filtroCliente !== undefined ? { clienteId: filtroCliente } : undefined,
+    where: filtro,
     orderBy: { completataIl: 'desc' },
     take: 50, // ultime 50: basta e avanza per una schermata da telefono
     include: {

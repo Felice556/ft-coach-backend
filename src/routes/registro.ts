@@ -62,16 +62,21 @@ router.get('/registro/:esercizioId', autentica, async (req, res) => {
 
   const esercizio = await prisma.esercizio.findUnique({
     where: { id: esercizioId },
-    include: { scheda: true },
+    include: { scheda: { include: { cliente: { select: { trainerId: true } } } } },
   });
   if (!esercizio) {
     res.status(404).json({ errore: 'Esercizio non trovato' });
     return;
   }
 
-  // Un cliente può vedere solo il proprio storico; il trainer può vedere quello di ogni cliente.
+  // Un cliente può vedere solo il proprio storico; il trainer solo quello dei SUOI clienti.
   if (ruolo === 'CLIENTE' && esercizio.scheda.clienteId !== clienteId) {
     res.status(403).json({ errore: 'Non puoi vedere lo storico di un altro cliente' });
+    return;
+  }
+  if (ruolo === 'TRAINER' && esercizio.scheda.cliente.trainerId !== clienteId) {
+    // 404 e non 403: un trainer non deve nemmeno scoprire che l'esercizio esiste.
+    res.status(404).json({ errore: 'Esercizio non trovato' });
     return;
   }
 

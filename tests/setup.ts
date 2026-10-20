@@ -11,6 +11,6 @@ controllaDatabaseDiTest(url);
 
 process.env.DATABASE_URL = url;
 process.env.JWT_SECRET = 'segreto-solo-per-i-test-lungo-abbastanza';
-process.env.CODICE_TRAINER = 'codice-trainer-di-test';
+delete process.env.CODICE_TRAINER;
 delete process.env.INVITI_OBBLIGATORI;
 delete process.env.FRONTEND_URL;

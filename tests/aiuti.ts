@@ -23,17 +23,30 @@ async function hashPassword() {
   return hash;
 }
 
-export async function creaUtente(nome: string, email: string, ruolo: 'TRAINER' | 'CLIENTE') {
-  return prisma.user.create({ data: { nome, email, ruolo, password: await hashPassword() } });
+// extra: { trainerId } per un cliente (il suo trainer), { admin: true } per l'amministratore.
+export async function creaUtente(
+  nome: string,
+  email: string,
+  ruolo: 'TRAINER' | 'CLIENTE',
+  extra: { trainerId?: number; admin?: boolean } = {},
+) {
+  return prisma.user.create({ data: { nome, email, ruolo, password: await hashPassword(), ...extra } });
 }
 
-// Un trainer e due clienti, come nella vita reale.
+// Un trainer (l'amministratore) e due suoi clienti, come nella vita reale.
 export async function utentiDiPartenza() {
   await databasePulito();
-  const trainer = await creaUtente('Felice', 'felice@test.com', 'TRAINER');
-  const alessio = await creaUtente('Alessio', 'alessio@test.com', 'CLIENTE');
-  const giulia = await creaUtente('Giulia', 'giulia@test.com', 'CLIENTE');
+  const trainer = await creaUtente('Felice', 'felice@test.com', 'TRAINER', { admin: true });
+  const alessio = await creaUtente('Alessio', 'alessio@test.com', 'CLIENTE', { trainerId: trainer.id });
+  const giulia = await creaUtente('Giulia', 'giulia@test.com', 'CLIENTE', { trainerId: trainer.id });
   return { trainer, alessio, giulia };
+}
+
+// Un secondo trainer (NON amministratore) con un suo cliente: serve a verificare la separazione.
+export async function altroTrainerConCliente() {
+  const marta = await creaUtente('Marta', 'marta@test.com', 'TRAINER');
+  const paolo = await creaUtente('Paolo', 'paolo@test.com', 'CLIENTE', { trainerId: marta.id });
+  return { marta, paolo };
 }
 
 // Login: restituisce il token. `ip` serve a simulare reti diverse (limiti ai tentativi).

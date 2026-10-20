@@ -1,8 +1,8 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { randomInt } from 'node:crypto';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
-import { autentica, richiedeRuolo } from '../middleware/auth.js';
+import { autentica, richiedeAdmin, richiedeRuolo } from '../middleware/auth.js';
 import { leggiId } from '../utils.js';
 
 const router = Router();
@@ -37,8 +37,10 @@ const creaSchema = z.object({
   giorni: z.number().int().min(1).max(60).default(14),
 });
 
-// Il trainer crea un invito (facoltativo: per chi è, e quanti giorni vale).
-router.post('/inviti', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
+type RuoloInvito = 'CLIENTE' | 'TRAINER';
+
+// Crea un invito del tipo indicato a nome di chi fa la richiesta.
+async function creaInvito(req: Request, res: Response, ruolo: RuoloInvito) {
   const risultato = creaSchema.safeParse(req.body ?? {});
   if (!risultato.success) {
     res.status(400).json({ errori: risultato.error.issues });
@@ -52,30 +54,31 @@ router.post('/inviti', autentica, richiedeRuolo('TRAINER'), async (req, res) => 
     const codice = nuovoCodice();
     if (await prisma.invito.findUnique({ where: { codice } })) continue;
     const invito = await prisma.invito.create({
-      data: { codice, nota: nota || null, scadeIl, trainerId: (req as any).userId as number },
+      data: { codice, nota: nota || null, scadeIl, ruolo, trainerId: (req as any).userId as number },
     });
     res.status(201).json({ ...invito, stato: stato(invito), usatoDa: null });
     return;
   }
   res.status(500).json({ errore: 'Non è stato possibile creare il codice, riprova' });
-});
+}
 
-// Elenco inviti, dal più recente, con lo stato e chi l'ha usato.
-router.get('/inviti', autentica, richiedeRuolo('TRAINER'), async (_req, res) => {
+// Elenco degli inviti di questo tipo creati da chi fa la richiesta, dal più recente.
+async function elencoInviti(req: Request, res: Response, ruolo: RuoloInvito) {
   const inviti = await prisma.invito.findMany({
+    where: { trainerId: (req as any).userId as number, ruolo },
     orderBy: { creatoIl: 'desc' },
     take: 100,
     include: { usatoDa: { select: { nome: true, email: true } } },
   });
   res.json(inviti.map((i) => ({ ...i, stato: stato(i) })));
-});
+}
 
 // Annulla un invito non ancora usato (es. dato alla persona sbagliata). Non si cancella: resta nello storico.
-router.post('/inviti/:id/annulla', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
+async function annullaInvito(req: Request, res: Response, ruolo: RuoloInvito) {
   const id = leggiId(req.params.id, res);
   if (id === null) return;
   const { count } = await prisma.invito.updateMany({
-    where: { id, usatoIl: null, annullatoIl: null },
+    where: { id, ruolo, trainerId: (req as any).userId as number, usatoIl: null, annullatoIl: null },
     data: { annullatoIl: new Date() },
   });
   if (count === 0) {
@@ -83,6 +86,16 @@ router.post('/inviti/:id/annulla', autentica, richiedeRuolo('TRAINER'), async (r
     return;
   }
   res.status(204).send();
-});
+}
+
+// ---------- Inviti per i clienti: ogni trainer gestisce i propri ----------
+router.post('/inviti', autentica, richiedeRuolo('TRAINER'), (req, res) => creaInvito(req, res, 'CLIENTE'));
+router.get('/inviti', autentica, richiedeRuolo('TRAINER'), (req, res) => elencoInviti(req, res, 'CLIENTE'));
+router.post('/inviti/:id/annulla', autentica, richiedeRuolo('TRAINER'), (req, res) => annullaInvito(req, res, 'CLIENTE'));
+
+// ---------- Inviti per i nuovi trainer: SOLO l'amministratore ----------
+router.post('/admin/inviti-trainer', autentica, richiedeAdmin, (req, res) => creaInvito(req, res, 'TRAINER'));
+router.get('/admin/inviti-trainer', autentica, richiedeAdmin, (req, res) => elencoInviti(req, res, 'TRAINER'));
+router.post('/admin/inviti-trainer/:id/annulla', autentica, richiedeAdmin, (req, res) => annullaInvito(req, res, 'TRAINER'));
 
 export default router;

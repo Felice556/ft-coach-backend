@@ -25,6 +25,17 @@ model User {
   // di funzionare, così un telefono perso o condiviso viene disconnesso.
   versioneToken      Int     @default(0)
 
+  // Amministratore dell'app: l'unico che può creare gli inviti per i nuovi trainer.
+  // NESSUNA rotta dell'app scrive questo campo: è stato impostato una volta sola dalla
+  // migrazione "trainer_separati" sul primo trainer (Felice). Nessuno può diventarlo da sé.
+  admin Boolean @default(false)
+
+  // Solo per i CLIENTI: il trainer che li segue. Ogni trainer vede SOLO i suoi clienti.
+  // Per i trainer resta vuoto.
+  trainerId Int?
+  trainer   User?  @relation("ClientiDelTrainer", fields: [trainerId], references: [id], onDelete: Restrict)
+  clienti   User[] @relation("ClientiDelTrainer")
+
   // Un cliente possiede delle schede; un trainer non usa questo campo.
   schede   Scheda[]
 
@@ -47,6 +58,8 @@ model User {
   // Peso corporeo e % di massa grassa del cliente / misure inserite da questo utente.
   misure         MisuraCorporea[] @relation("MisureDelCliente")
   misureInserite MisuraCorporea[] @relation("MisureInserite")
+
+  @@index([trainerId])
 }
 
 enum TipoMisura {
@@ -80,6 +93,9 @@ model Invito {
   id          Int       @id @default(autoincrement())
   codice      String    @unique // es. "K7M3-Q9TX"
   nota        String? // per chi è (es. "Marco Rossi"), la scrive il trainer
+  // CLIENTE: invito che un trainer dà a un suo cliente.
+  // TRAINER: invito per un nuovo trainer, lo può creare solo l'amministratore.
+  ruolo       Ruolo     @default(CLIENTE)
   creatoIl    DateTime  @default(now())
   scadeIl     DateTime
   usatoIl     DateTime?

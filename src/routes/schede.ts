@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
 import { autentica, richiedeRuolo } from '../middleware/auth.js';
+import { clienteDelTrainer, eserciziDelTrainer, schedeDelTrainer } from '../proprieta.js';
 import { leggiId, leggiIdFacoltativo, linkVideoSchema } from '../utils.js';
 
 const router = Router();
@@ -76,10 +77,12 @@ const schedaSchema = z.object({
   esercizi: z.array(esercizioSchema).min(1, 'Serve almeno un esercizio'),
 });
 
-async function eUnCliente(clienteId: number) {
-  const cliente = await prisma.user.findUnique({ where: { id: clienteId } });
-  return cliente?.ruolo === 'CLIENTE';
+// true solo se clienteId è un CLIENTE seguito da questo trainer.
+async function eUnSuoCliente(trainerId: number, clienteId: number) {
+  return (await clienteDelTrainer(trainerId, clienteId)) !== null;
 }
+
+const trainerDi = (req: any) => req.userId as number;
 
 // Solo il TRAINER crea schede, e le assegna a un cliente specifico.
 router.post('/schede', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
@@ -91,8 +94,8 @@ router.post('/schede', autentica, richiedeRuolo('TRAINER'), async (req, res) => 
   const { nome, clienteId } = risultato.data;
   const esercizi = senzaCollegamentoFinale(risultato.data.esercizi);
 
-  // Verifica che il clienteId passato sia davvero un CLIENTE e non un altro trainer.
-  if (!(await eUnCliente(clienteId))) {
+  // Verifica che il clienteId passato sia davvero un CLIENTE di questo trainer.
+  if (!(await eUnSuoCliente(trainerDi(req), clienteId))) {
     res.status(400).json({ errore: 'Cliente non valido: controlla l’ID del cliente' });
     return;
   }
@@ -116,8 +119,8 @@ router.post('/schede', autentica, richiedeRuolo('TRAINER'), async (req, res) => 
   res.status(201).json(scheda);
 });
 
-// Elenco schede ATTIVE. Il CLIENTE vede solo le proprie; il TRAINER tutte
-// (o quelle di un cliente con ?clienteId=3). Con ?archiviate=1 il trainer vede l'archivio.
+// Elenco schede ATTIVE. Il CLIENTE vede solo le proprie; il TRAINER quelle dei SUOI clienti
+// (o di uno solo con ?clienteId=3). Con ?archiviate=1 il trainer vede l'archivio.
 router.get('/schede', autentica, async (req, res) => {
   const userId = (req as any).userId as number;
   const ruolo = (req as any).ruolo as string;
@@ -138,6 +141,7 @@ router.get('/schede', autentica, async (req, res) => {
 
   const schede = await prisma.scheda.findMany({
     where: {
+      ...schedeDelTrainer(userId),
       ...(clienteIdQuery ? { clienteId: clienteIdQuery } : {}),
       archiviataIl: archiviate ? { not: null } : null,
     },
@@ -194,8 +198,8 @@ router.put('/schede/:id', autentica, richiedeRuolo('TRAINER'), async (req, res) 
   const { nome, clienteId } = risultato.data;
   const esercizi = risultato.data.esercizi && senzaCollegamentoFinale(risultato.data.esercizi);
 
-  const esistente = await prisma.scheda.findUnique({
-    where: { id },
+  const esistente = await prisma.scheda.findFirst({
+    where: { id, ...schedeDelTrainer(trainerDi(req)) },
     include: { esercizi: { where: { archiviatoIl: null } } },
   });
   if (!esistente) {
@@ -207,7 +211,7 @@ router.put('/schede/:id', autentica, richiedeRuolo('TRAINER'), async (req, res) 
     return;
   }
 
-  if (clienteId !== undefined && !(await eUnCliente(clienteId))) {
+  if (clienteId !== undefined && !(await eUnSuoCliente(trainerDi(req), clienteId))) {
     res.status(400).json({ errore: 'Cliente non valido: controlla l’ID del cliente' });
     return;
   }
@@ -289,7 +293,7 @@ router.post('/schede/:id/archivia', autentica, richiedeRuolo('TRAINER'), async (
   const id = leggiId(req.params.id, res);
   if (id === null) return;
   const { count } = await prisma.scheda.updateMany({
-    where: { id, archiviataIl: null },
+    where: { id, archiviataIl: null, ...schedeDelTrainer(trainerDi(req)) },
     data: { archiviataIl: new Date() },
   });
   if (count === 0) {
@@ -303,7 +307,7 @@ router.post('/schede/:id/ripristina', autentica, richiedeRuolo('TRAINER'), async
   const id = leggiId(req.params.id, res);
   if (id === null) return;
   const { count } = await prisma.scheda.updateMany({
-    where: { id, archiviataIl: { not: null } },
+    where: { id, archiviataIl: { not: null }, ...schedeDelTrainer(trainerDi(req)) },
     data: { archiviataIl: null },
   });
   if (count === 0) {
@@ -321,7 +325,7 @@ router.post('/schede/:id/ripristina', autentica, richiedeRuolo('TRAINER'), async
 router.delete('/schede/:id', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
   const id = leggiId(req.params.id, res);
   if (id === null) return;
-  const scheda = await prisma.scheda.findUnique({ where: { id } });
+  const scheda = await prisma.scheda.findFirst({ where: { id, ...schedeDelTrainer(trainerDi(req)) } });
   if (!scheda) {
     res.status(404).json({ errore: 'Scheda non trovata' });
     return;
@@ -359,7 +363,7 @@ router.put('/esercizi/:id', autentica, richiedeRuolo('TRAINER'), async (req, res
   }
   const { serieExtra, ...campi } = risultato.data;
 
-  const esistente = await prisma.esercizio.findFirst({ where: { id, archiviatoIl: null } });
+  const esistente = await prisma.esercizio.findFirst({ where: { id, archiviatoIl: null, ...eserciziDelTrainer(trainerDi(req)) } });
   if (!esistente) {
     res.status(404).json({ errore: 'Esercizio non trovato' });
     return;
@@ -386,8 +390,8 @@ router.put('/esercizi/:id', autentica, richiedeRuolo('TRAINER'), async (req, res
 router.get('/schede/:id/storico', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
   const id = leggiId(req.params.id, res);
   if (id === null) return;
-  const scheda = await prisma.scheda.findUnique({
-    where: { id },
+  const scheda = await prisma.scheda.findFirst({
+    where: { id, ...schedeDelTrainer(trainerDi(req)) },
     select: { id: true, nome: true, clienteId: true, archiviataIl: true, creataIl: true, cliente: { select: { nome: true } } },
   });
   if (!scheda) {
@@ -420,7 +424,7 @@ router.get('/schede/:id/esercizi-archiviati', autentica, richiedeRuolo('TRAINER'
   const id = leggiId(req.params.id, res);
   if (id === null) return;
   const esercizi = await prisma.esercizio.findMany({
-    where: { schedaId: id, archiviatoIl: { not: null } },
+    where: { schedaId: id, archiviatoIl: { not: null }, ...eserciziDelTrainer(trainerDi(req)) },
     orderBy: { archiviatoIl: 'desc' },
     include: { serieExtra: { orderBy: { ordine: 'asc' } }, _count: { select: { registri: true } } },
   });
@@ -432,7 +436,7 @@ router.post('/esercizi/:id/ripristina', autentica, richiedeRuolo('TRAINER'), asy
   if (id === null) return;
   // Solo se la scheda è attiva: in una scheda archiviata si ripristina prima la scheda.
   const { count } = await prisma.esercizio.updateMany({
-    where: { id, archiviatoIl: { not: null }, scheda: { archiviataIl: null } },
+    where: { id, archiviatoIl: { not: null }, scheda: { archiviataIl: null, ...schedeDelTrainer(trainerDi(req)) } },
     data: { archiviatoIl: null },
   });
   if (count === 0) {
@@ -447,7 +451,7 @@ router.delete('/esercizi/:id', autentica, richiedeRuolo('TRAINER'), async (req, 
   const id = leggiId(req.params.id, res);
   if (id === null) return;
   const { count } = await prisma.esercizio.updateMany({
-    where: { id, archiviatoIl: null },
+    where: { id, archiviatoIl: null, ...eserciziDelTrainer(trainerDi(req)) },
     data: { archiviatoIl: new Date() },
   });
   if (count === 0) {

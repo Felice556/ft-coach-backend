@@ -48,7 +48,7 @@ export async function autentica(req: Request, res: Response, next: NextFunction)
 
   const utente = await prisma.user.findUnique({
     where: { id: payload.userId },
-    select: { ruolo: true, versioneToken: true, passwordTemporanea: true },
+    select: { ruolo: true, versioneToken: true, passwordTemporanea: true, admin: true },
   });
   if (!utente || (payload.v ?? 0) !== utente.versioneToken) {
     res.status(401).json({ errore: 'Sessione non più valida, accedi di nuovo' });
@@ -64,6 +64,8 @@ export async function autentica(req: Request, res: Response, next: NextFunction)
   (req as any).userId = payload.userId;
   // Il ruolo lo prendiamo dal database, non dal token: è sempre quello attuale.
   (req as any).ruolo = utente.ruolo;
+  // Anche "admin" si legge sempre dal database: non sta nel token, quindi non si può falsificare.
+  (req as any).admin = utente.admin;
 
   // Sessione che si rinnova da sola: chi usa l'app riceve ogni tanto un token nuovo
   // (di nuovo valido 30 giorni), così il login si rifà solo dopo 30 giorni SENZA usarla.
@@ -89,4 +91,13 @@ export function richiedeRuolo(...ruoliAmmessi: Ruolo[]) {
     }
     next();
   };
+}
+
+// Solo l'amministratore (un trainer con admin = true nel database). Uso dopo autentica.
+export function richiedeAdmin(req: Request, res: Response, next: NextFunction) {
+  if ((req as any).ruolo !== 'TRAINER' || (req as any).admin !== true) {
+    res.status(403).json({ errore: 'Non hai i permessi per questa azione' });
+    return;
+  }
+  next();
 }
