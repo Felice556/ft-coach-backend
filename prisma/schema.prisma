@@ -41,6 +41,12 @@ model User {
   // Quanti clienti dice di seguire, a fasce: "1-10", "11-30", "31-50", "50+" (solo trainer in attesa).
   fasciaClienti String?
 
+  // Account sospeso: non può accedere, ma NESSUN dato viene cancellato e si può riattivare.
+  // Un trainer lo decide l'amministratore; un cliente lo decide il suo trainer.
+  // Se è sospeso un trainer, restano fuori anche i suoi clienti.
+  sospeso   Boolean   @default(false)
+  sospesoIl DateTime?
+
   // Solo per i CLIENTI: il trainer che li segue. Ogni trainer vede SOLO i suoi clienti.
   // Per i trainer resta vuoto.
   trainerId Int?

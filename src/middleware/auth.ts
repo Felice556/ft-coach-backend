@@ -51,10 +51,25 @@ export async function autentica(req: Request, res: Response, next: NextFunction)
 
   const utente = await prisma.user.findUnique({
     where: { id: payload.userId },
-    select: { ruolo: true, versioneToken: true, passwordTemporanea: true, admin: true, approvato: true },
+    select: {
+      ruolo: true,
+      versioneToken: true,
+      passwordTemporanea: true,
+      admin: true,
+      approvato: true,
+      sospeso: true,
+      trainer: { select: { sospeso: true } }, // per i clienti: il loro trainer è sospeso?
+    },
   });
   if (!utente || (payload.v ?? 0) !== utente.versioneToken) {
     res.status(401).json({ errore: 'Sessione non più valida, accedi di nuovo' });
+    return;
+  }
+
+  // Account sospeso (o cliente di un trainer sospeso): fuori da tutto, anche con un accesso ancora valido.
+  const motivo = motivoSospensione(utente);
+  if (motivo) {
+    res.status(403).json({ errore: motivo, codice: 'SOSPESO' });
     return;
   }
 
@@ -87,6 +102,20 @@ export async function autentica(req: Request, res: Response, next: NextFunction)
     );
   }
   next();
+}
+
+// Perché questo account non può entrare (null = può entrare). Usata anche dal login.
+// Sospendere non cancella niente: i dati restano, e riattivando torna tutto come prima.
+export function motivoSospensione(u: { ruolo: Ruolo; sospeso: boolean; trainer?: { sospeso: boolean } | null }): string | null {
+  if (u.sospeso) {
+    return u.ruolo === 'CLIENTE'
+      ? 'Il tuo account è sospeso: contatta il tuo trainer.'
+      : "Il tuo account trainer è sospeso: contatta l'amministratore di Liftio.";
+  }
+  if (u.ruolo === 'CLIENTE' && u.trainer?.sospeso) {
+    return 'Il tuo trainer al momento non è attivo su Liftio, quindi non puoi accedere. Contattalo per sapere di più.';
+  }
+  return null;
 }
 
 // Non basta essere autenticati: serve anche il ruolo giusto per quella rotta.

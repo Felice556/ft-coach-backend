@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../prisma.js';
-import { autentica, richiedeAdmin } from '../middleware/auth.js';
+import { autentica, richiedeAdmin, richiedeRuolo } from '../middleware/auth.js';
 import { leggiId } from '../utils.js';
 
 const router = Router();
@@ -20,6 +20,7 @@ router.get('/admin/trainer', autentica, richiedeAdmin, async (_req, res) => {
       nome: true,
       email: true,
       admin: true,
+      sospeso: true,
       invitoUsato: { select: { usatoIl: true } }, // quando si è registrato (se con un invito trainer)
       _count: { select: { clienti: true } },
     },
@@ -44,6 +45,7 @@ router.get('/admin/trainer', autentica, richiedeAdmin, async (_req, res) => {
         nome: t.nome,
         email: t.email,
         admin: t.admin,
+        sospeso: t.sospeso,
         registratoIl: t.invitoUsato?.usatoIl ?? null,
         clienti: t._count.clienti,
         clientiAttivi,
@@ -64,6 +66,25 @@ router.get('/admin/trainer', autentica, richiedeAdmin, async (_req, res) => {
     trainer: righe,
   });
 });
+
+// ---------- Sospendere / riattivare un trainer ----------
+// Il trainer sospeso non può accedere, e nemmeno i suoi clienti. Nessun dato viene cancellato:
+// riattivandolo torna tutto come prima. L'amministratore non può sospendere sé stesso.
+for (const [azione, sospeso] of [['sospendi', true], ['riattiva', false]] as const) {
+  router.post(`/admin/trainer/:id/${azione}`, autentica, richiedeRuolo('TRAINER'), richiedeAdmin, async (req, res) => {
+    const id = leggiId(req.params.id, res);
+    if (id === null) return;
+    const { count } = await prisma.user.updateMany({
+      where: { id, ruolo: 'TRAINER', approvato: true, admin: false },
+      data: { sospeso, sospesoIl: sospeso ? new Date() : null },
+    });
+    if (count === 0) {
+      res.status(404).json({ errore: 'Trainer non trovato' });
+      return;
+    }
+    res.status(204).send();
+  });
+}
 
 // ---------- Trainer in attesa di approvazione ----------
 // Si sono registrati da soli (senza invito): solo l'amministratore può approvarli o rifiutarli.

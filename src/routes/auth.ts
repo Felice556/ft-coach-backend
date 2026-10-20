@@ -2,7 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcrypt';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
-import { autentica, richiedeRuolo, creaToken } from '../middleware/auth.js';
+import { autentica, richiedeRuolo, creaToken, motivoSospensione } from '../middleware/auth.js';
 import { leggiId } from '../utils.js';
 import { limiteCambioPassword, limiteLoginPerEmail, limiteLoginPerIp, limiteRegistrazione } from '../limiti.js';
 import { normalizzaCodice } from './inviti.js';
@@ -84,9 +84,10 @@ router.post('/register', limiteRegistrazione, async (req, res) => {
       // Un nuovo trainer non appartiene a nessuno. "admin" non si imposta MAI qui.
       let trainerId: number | null = null;
       if (codiceInvito) {
-        const invito = await tx.invito.findUnique({ where: { codice: codiceInvito } });
+        const invito = await tx.invito.findUnique({ where: { codice: codiceInvito }, include: { trainer: { select: { sospeso: true } } } });
         // L'invito deve essere del tipo giusto: un invito cliente non crea un trainer, e viceversa.
-        if (!invito || invito.ruolo !== ruolo) throw new Error('INVITO_NON_VALIDO');
+        // E non vale se chi l'ha creato è stato sospeso.
+        if (!invito || invito.ruolo !== ruolo || invito.trainer.sospeso) throw new Error('INVITO_NON_VALIDO');
         if (ruolo === 'CLIENTE') trainerId = invito.trainerId;
       } else if (ruolo === 'CLIENTE') {
         const amministratore = await tx.user.findFirst({ where: { admin: true }, select: { id: true } });
@@ -142,7 +143,10 @@ router.post('/login', limiteLoginPerIp, limiteLoginPerEmail, async (req, res) =>
   const { email, password } = risultato.data;
 
   // Ricerca senza distinguere maiuscole/minuscole (funziona anche per account creati prima).
-  const utente = await prisma.user.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+  const utente = await prisma.user.findFirst({
+    where: { email: { equals: email, mode: 'insensitive' } },
+    include: { trainer: { select: { sospeso: true } } },
+  });
   if (!utente) {
     await bcrypt.compare(password, HASH_FINTO);
     res.status(401).json({ errore: 'Credenziali non valide' });
@@ -152,6 +156,14 @@ router.post('/login', limiteLoginPerIp, limiteLoginPerEmail, async (req, res) =>
   const passwordCorretta = await bcrypt.compare(password, utente.password);
   if (!passwordCorretta) {
     res.status(401).json({ errore: 'Credenziali non valide' });
+    return;
+  }
+
+  // Account sospeso (o cliente di un trainer sospeso): password giusta, ma niente accesso.
+  // Lo diciamo solo DOPO aver controllato la password, così non si scopre chi è sospeso.
+  const motivo = motivoSospensione(utente);
+  if (motivo) {
+    res.status(403).json({ errore: motivo, codice: 'SOSPESO' });
     return;
   }
 
@@ -276,11 +288,30 @@ router.put('/clienti/:id/email', autentica, richiedeRuolo('TRAINER'), async (req
 router.get('/clienti', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
   const clienti = await prisma.user.findMany({
     where: { ruolo: 'CLIENTE', trainerId: (req as any).userId as number },
-    select: { id: true, nome: true, email: true }, // mai la password
+    select: { id: true, nome: true, email: true, sospeso: true }, // mai la password
     orderBy: { nome: 'asc' },
   });
   res.json(clienti);
 });
+
+// Il trainer sospende o riattiva un SUO cliente. Nessun dato viene toccato: il cliente
+// semplicemente non può accedere finché non viene riattivato.
+for (const [azione, sospeso] of [['sospendi', true], ['riattiva', false]] as const) {
+  router.post(`/clienti/:id/${azione}`, autentica, richiedeRuolo('TRAINER'), async (req, res) => {
+    const id = leggiId(req.params.id, res);
+    if (id === null) return;
+    if (!(await trovaCliente(req, id))) {
+      res.status(404).json({ errore: 'Cliente non trovato' });
+      return;
+    }
+    const aggiornato = await prisma.user.update({
+      where: { id },
+      data: { sospeso, sospesoIl: sospeso ? new Date() : null },
+      select: { id: true, nome: true, email: true, sospeso: true },
+    });
+    res.json(aggiornato);
+  });
+}
 
 // Chi sono: serve al frontend per sapere, ad esempio, se mostrare la sezione amministratore.
 router.get('/me', autentica, async (req, res) => {

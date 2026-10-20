@@ -61,14 +61,14 @@ Security was a priority, because the app stores personal and health data:
 | Area | Endpoints |
 |---|---|
 | **Auth** | `POST /register` · `POST /login` · `GET /registrazione/info` · `GET /me` · `PUT /me/password` · `DELETE /me` |
-| **Clients** (trainer) | `GET /clienti` · `PUT /clienti/:id/email` · `PUT /clienti/:id/password` |
+| **Clients** (trainer) | `GET /clienti` · `PUT /clienti/:id/email` · `PUT /clienti/:id/password` · `POST /clienti/:id/sospendi` · `POST /clienti/:id/riattiva` |
 | **Plans** | `GET/POST /schede` · `PUT /schede/:id` · `POST /schede/:id/archivia` · `POST /schede/:id/ripristina` · `DELETE /schede/:id` · `GET /schede/:id/storico` · `GET /schede/:id/esercizi-archiviati` |
 | **Exercises** | `PUT/DELETE /esercizi/:id` · `POST /esercizi/:id/ripristina` |
 | **Workout log** | `POST /registro` · `GET /registro/:esercizioId` · `PUT/DELETE /registro/serie/:id` |
 | **Completed workouts** | `GET/POST /sessioni`, `PUT /sessioni/:id/feedback` |
 | **Body composition** | `GET /misure` · `PUT /misure` · `DELETE /misure/:id` |
 | **Invites** (trainer) | `GET/POST /inviti` · `POST /inviti/:id/annulla` |
-| **Admin only** | `GET/POST /admin/inviti-trainer` · `POST /admin/inviti-trainer/:id/annulla` · `GET /admin/trainer` (overview: trainers, clients, activity; numbers only) · `GET /admin/trainer-in-attesa` · `POST /admin/trainer/:id/approva` · `POST /admin/trainer/:id/rifiuta` |
+| **Admin only** | `GET/POST /admin/inviti-trainer` · `POST /admin/inviti-trainer/:id/annulla` · `GET /admin/trainer` (overview: trainers, clients, activity; numbers only) · `GET /admin/trainer-in-attesa` · `POST /admin/trainer/:id/approva` · `POST /admin/trainer/:id/rifiuta` · `POST /admin/trainer/:id/sospendi` · `POST /admin/trainer/:id/riattiva` |
 | **Libraries** (trainer) | `GET/POST /preset-esercizi` · `PATCH/DELETE /preset-esercizi/:id` · `GET/POST /preset-note` · `DELETE /preset-note/:id` |
 | **Health check** | `GET /health` |
 
@@ -76,7 +76,7 @@ Security was a priority, because the app stores personal and health data:
 
 ## ✅ Tests
 
-**122 automated tests** (Vitest + Supertest) run against a real PostgreSQL database, on every push, with **GitHub Actions**.
+**126 automated tests** (Vitest + Supertest) run against a real PostgreSQL database, on every push, with **GitHub Actions**.
 They call the real API routes and check the behaviour that matters most:
 
 | File | What it checks |
@@ -88,6 +88,7 @@ They call the real API routes and check the behaviour that matters most:
 | `tests/libreria.test.ts` | exercise library grouped by muscle group: only the owner trainer can change it, unknown groups rejected |
 | `tests/trainer-separati.test.ts` | **two trainers side by side**: each one sees and changes only their own clients' data on every route, the admin included; only the admin can invite trainers; a trainer invite can't create a client and vice versa; nobody can make themselves admin; the admin overview shows only numbers, never other trainers' client data |
 | `tests/trainer-in-attesa.test.ts` | trainers who sign up without an invite: they must say how many clients they train (by range; the intro is optional), stay blocked on every route until approved, only the admin can list/approve/reject them, approve/reject never touch active trainers, clients or the admin |
+| `tests/sospensioni.test.ts` | suspending without deleting: a trainer suspends one of their clients, the admin suspends a trainer (and their clients are locked out too, their invites stop working); open sessions are cut off, login says why only after the right password, nothing is deleted, reactivating restores everything |
 | `tests/elimina-account.test.ts` | deleting your own account (required by Google Play and the GDPR): password + typed confirmation, all of a client's data removed in one transaction without touching anyone else's, the admin can't delete themselves, a trainer with clients can't leave them orphaned |
 | `tests/superset-e-feedback.test.ts` | linking exercises into supersets/jumpsets, end-of-workout feedback (effort 1-10 and a note) that only the client can write and that survives re-closing the workout |
 
