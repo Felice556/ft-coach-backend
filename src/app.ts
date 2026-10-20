@@ -11,6 +11,7 @@ import sessioniRouter from './routes/sessioni.js';
 import invitiRouter from './routes/inviti.js';
 import { HEADER_NUOVO_TOKEN } from './middleware/auth.js';
 import misureRouter from './routes/misure.js';
+import adminRouter from './routes/admin.js';
 
 // L'app Express, senza avviarla: così i test (tests/) possono usarla direttamente,
 // senza aprire una porta. L'avvio vero è in server.ts.
@@ -51,6 +52,7 @@ app.use(presetRouter);
 app.use(sessioniRouter);
 app.use(invitiRouter);
 app.use(misureRouter);
+app.use(adminRouter);
 
 // Gestore degli errori imprevisti (database irraggiungibile, bug, ecc.).
 // Express 5 ci porta qui anche gli errori delle rotte async: la singola richiesta

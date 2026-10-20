@@ -68,7 +68,7 @@ Security was a priority, because the app stores personal and health data:
 | **Completed workouts** | `GET/POST /sessioni`, `PUT /sessioni/:id/feedback` |
 | **Body composition** | `GET /misure` · `PUT /misure` · `DELETE /misure/:id` |
 | **Invites** (trainer) | `GET/POST /inviti` · `POST /inviti/:id/annulla` |
-| **Trainer invites** (admin only) | `GET/POST /admin/inviti-trainer` · `POST /admin/inviti-trainer/:id/annulla` |
+| **Admin only** | `GET/POST /admin/inviti-trainer` · `POST /admin/inviti-trainer/:id/annulla` · `GET /admin/trainer` (overview: trainers, clients, activity; numbers only) |
 | **Libraries** (trainer) | `GET/POST /preset-esercizi` · `PATCH/DELETE /preset-esercizi/:id` · `GET/POST /preset-note` · `DELETE /preset-note/:id` |
 | **Health check** | `GET /health` |
 
@@ -76,7 +76,7 @@ Security was a priority, because the app stores personal and health data:
 
 ## ✅ Tests
 
-**104 automated tests** (Vitest + Supertest) run against a real PostgreSQL database, on every push, with **GitHub Actions**.
+**106 automated tests** (Vitest + Supertest) run against a real PostgreSQL database, on every push, with **GitHub Actions**.
 They call the real API routes and check the behaviour that matters most:
 
 | File | What it checks |
@@ -86,7 +86,7 @@ They call the real API routes and check the behaviour that matters most:
 | `tests/schede.test.ts` | plans, set logging, completed workouts, **data isolation between clients**, archiving instead of deleting (no logged set is ever lost), trainer history, input validation, security headers |
 | `tests/misure.test.ts` | body weight and body-fat %: who can write what, who can see what, impossible values |
 | `tests/libreria.test.ts` | exercise library grouped by muscle group: only the owner trainer can change it, unknown groups rejected |
-| `tests/trainer-separati.test.ts` | **two trainers side by side**: each one sees and changes only their own clients' data on every route, the admin included; only the admin can invite trainers; a trainer invite can't create a client and vice versa; nobody can make themselves admin |
+| `tests/trainer-separati.test.ts` | **two trainers side by side**: each one sees and changes only their own clients' data on every route, the admin included; only the admin can invite trainers; a trainer invite can't create a client and vice versa; nobody can make themselves admin; the admin overview shows only numbers, never other trainers' client data |
 | `tests/superset-e-feedback.test.ts` | linking exercises into supersets/jumpsets, end-of-workout feedback (effort 1-10 and a note) that only the client can write and that survives re-closing the workout |
 
 **Safety first:** the tests wipe their database on every run, so they **refuse to start** unless the database is on `localhost` and has `test` in its name. The real database can't be touched by mistake.

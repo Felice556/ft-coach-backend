@@ -206,3 +206,32 @@ describe('Un solo amministratore: Felice', () => {
     expect(admin).toEqual([{ email: 'felice@test.com' }]);
   });
 });
+
+describe('Panoramica trainer per l’amministratore', () => {
+  it('solo l’amministratore la vede', async () => {
+    for (const t of [tM, tA, tP]) expect((await api().get('/admin/trainer').set(auth(t))).status).toBe(403);
+    expect((await api().get('/admin/trainer')).status).toBe(401);
+  });
+
+  it('per ogni trainer: numero di clienti, clienti attivi, schede e allenamenti; solo numeri', async () => {
+    const r = await api().get('/admin/trainer').set(auth(tF));
+    expect(r.status).toBe(200);
+    const felice = r.body.trainer.find((t: any) => t.email === 'felice@test.com');
+    const marta = r.body.trainer.find((t: any) => t.email === 'marta@test.com');
+    // Felice: Alessio, Giulia e Sara (registrata senza invito); Alessio si è allenato oggi
+    expect(felice).toMatchObject({ admin: true, clienti: 3, clientiAttivi: 1, schedeAttive: 1, allenamenti30: 1 });
+    expect(felice.ultimoAllenamento).not.toBeNull();
+    // Marta: Paolo, Luca e Vero (registrati con i suoi inviti); nessun allenamento
+    expect(marta).toMatchObject({ admin: false, clienti: 3, clientiAttivi: 0, schedeAttive: 1, allenamenti30: 0, ultimoAllenamento: null });
+    // Roberto, registrato con l'invito trainer: ha la data di registrazione e zero clienti
+    const roberto = r.body.trainer.find((t: any) => t.email === 'roberto@test.com');
+    expect(roberto.clienti).toBe(0);
+    expect(roberto.registratoIl).not.toBeNull();
+    expect(r.body.totali.trainer).toBe(r.body.trainer.length);
+    expect(r.body.totali.clienti).toBe(r.body.trainer.reduce((s: number, t: any) => s + t.clienti, 0));
+    // Nessun dato dei clienti nella risposta: niente nomi, email o password
+    const testo = JSON.stringify(r.body);
+    for (const parola of ['Alessio', 'Paolo', 'alessio@test.com', 'password']) expect(testo).not.toContain(parola);
+  });
+});
+
