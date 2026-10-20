@@ -24,18 +24,18 @@ describe('Accesso e registrazione', () => {
     expect(r2.body).toEqual(r.body);
   });
 
-  it('registrazione come TRAINER senza invito: senza presentazione rifiutata, il vecchio codice segreto non serve a niente', async () => {
-    const senza = await api().post('/register').send({ nome: 'Hacker', email: 'h@x.com', password: 'password123', ruolo: 'TRAINER' });
-    expect(senza.status).toBe(400);
+  it('registrazione come TRAINER senza invito: resta in attesa, anche col vecchio codice segreto', async () => {
     // Il vecchio campo codiceTrainer non serve più a niente, anche se qualcuno lo conosce:
-    // senza invito si resta comunque "in attesa" (vedi trainer-in-attesa.test.ts).
+    // senza invito si resta comunque "in attesa" dell'amministratore (vedi trainer-in-attesa.test.ts).
     process.env.CODICE_TRAINER = 'vecchio-codice';
     const vecchio = await api()
       .post('/register')
-      .send({ nome: 'Hacker', email: 'h@x.com', password: 'password123', ruolo: 'TRAINER', codiceTrainer: 'vecchio-codice' });
+      .send({ nome: 'Hacker', email: 'h@x.com', password: 'password123', ruolo: 'TRAINER', fasciaClienti: '1-10', codiceTrainer: 'vecchio-codice' });
     delete process.env.CODICE_TRAINER;
-    expect(vecchio.status).toBe(400);
-    expect(await prisma.user.count({ where: { email: 'h@x.com' } })).toBe(0);
+    expect(vecchio.status).toBe(201);
+    expect(vecchio.body.inAttesa).toBe(true);
+    const hacker = await prisma.user.findUnique({ where: { email: 'h@x.com' } });
+    expect(hacker).toMatchObject({ ruolo: 'TRAINER', approvato: false, admin: false });
   });
 
   it('email già registrata (anche con maiuscole diverse) rifiutata', async () => {

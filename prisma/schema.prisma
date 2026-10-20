@@ -38,6 +38,8 @@ model User {
   presentazione String?
   // Quando ha chiesto di entrare (solo per i trainer in attesa).
   richiestaIl   DateTime?
+  // Quanti clienti dice di seguire, a fasce: "1-10", "11-30", "31-50", "50+" (solo trainer in attesa).
+  fasciaClienti String?
 
   // Solo per i CLIENTI: il trainer che li segue. Ogni trainer vede SOLO i suoi clienti.
   // Per i trainer resta vuoto.

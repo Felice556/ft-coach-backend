@@ -76,7 +76,7 @@ Security was a priority, because the app stores personal and health data:
 
 ## ✅ Tests
 
-**121 automated tests** (Vitest + Supertest) run against a real PostgreSQL database, on every push, with **GitHub Actions**.
+**122 automated tests** (Vitest + Supertest) run against a real PostgreSQL database, on every push, with **GitHub Actions**.
 They call the real API routes and check the behaviour that matters most:
 
 | File | What it checks |
@@ -87,7 +87,7 @@ They call the real API routes and check the behaviour that matters most:
 | `tests/misure.test.ts` | body weight and body-fat %: who can write what, who can see what, impossible values |
 | `tests/libreria.test.ts` | exercise library grouped by muscle group: only the owner trainer can change it, unknown groups rejected |
 | `tests/trainer-separati.test.ts` | **two trainers side by side**: each one sees and changes only their own clients' data on every route, the admin included; only the admin can invite trainers; a trainer invite can't create a client and vice versa; nobody can make themselves admin; the admin overview shows only numbers, never other trainers' client data |
-| `tests/trainer-in-attesa.test.ts` | trainers who sign up without an invite: they must introduce themselves, stay blocked on every route until approved, only the admin can list/approve/reject them, approve/reject never touch active trainers, clients or the admin |
+| `tests/trainer-in-attesa.test.ts` | trainers who sign up without an invite: they must say how many clients they train (by range; the intro is optional), stay blocked on every route until approved, only the admin can list/approve/reject them, approve/reject never touch active trainers, clients or the admin |
 | `tests/elimina-account.test.ts` | deleting your own account (required by Google Play and the GDPR): password + typed confirmation, all of a client's data removed in one transaction without touching anyone else's, the admin can't delete themselves, a trainer with clients can't leave them orphaned |
 | `tests/superset-e-feedback.test.ts` | linking exercises into supersets/jumpsets, end-of-workout feedback (effort 1-10 and a note) that only the client can write and that survives re-closing the workout |
 

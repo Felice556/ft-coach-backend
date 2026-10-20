@@ -72,7 +72,7 @@ router.get('/admin/trainer-in-attesa', autentica, richiedeAdmin, async (_req, re
   const inAttesa = await prisma.user.findMany({
     where: { ruolo: 'TRAINER', approvato: false },
     orderBy: { richiestaIl: 'asc' }, // prima chi aspetta da più tempo
-    select: { id: true, nome: true, email: true, presentazione: true, richiestaIl: true }, // mai la password
+    select: { id: true, nome: true, email: true, presentazione: true, fasciaClienti: true, richiestaIl: true }, // mai la password
   });
   res.json(inAttesa);
 });

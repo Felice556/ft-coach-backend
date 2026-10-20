@@ -5,7 +5,7 @@ import { altroTrainerConCliente, api, auth, prisma, schedaDiProva, token, utenti
 
 const PRESENTAZIONE = 'Personal trainer a Napoli, seguo circa 20 clienti in palestra.';
 const registraTrainer = (dati: object = {}) =>
-  api().post('/register').send({ nome: 'Luca', email: 'luca@test.com', password: 'password123', ruolo: 'TRAINER', presentazione: PRESENTAZIONE, ...dati });
+  api().post('/register').send({ nome: 'Luca', email: 'luca@test.com', password: 'password123', ruolo: 'TRAINER', presentazione: PRESENTAZIONE, fasciaClienti: '11-30', ...dati });
 
 let ids: Awaited<ReturnType<typeof utentiDiPartenza>> & Awaited<ReturnType<typeof altroTrainerConCliente>>;
 let tF: string;
@@ -21,13 +21,25 @@ describe('Trainer in attesa di approvazione', () => {
     expect(r.status).toBe(201);
     expect(r.body.inAttesa).toBe(true);
     const luca = await prisma.user.findUnique({ where: { email: 'luca@test.com' } });
-    expect(luca).toMatchObject({ ruolo: 'TRAINER', approvato: false, admin: false, trainerId: null, presentazione: PRESENTAZIONE });
+    expect(luca).toMatchObject({ ruolo: 'TRAINER', approvato: false, admin: false, trainerId: null, presentazione: PRESENTAZIONE, fasciaClienti: '11-30' });
     expect(luca?.richiestaIl).not.toBeNull();
   });
 
-  it('senza presentazione (o troppo corta) la registrazione è rifiutata', async () => {
-    expect((await registraTrainer({ presentazione: undefined })).status).toBe(400);
-    expect((await registraTrainer({ presentazione: 'ciao' })).status).toBe(400);
+  it('la presentazione è facoltativa: anche senza, la richiesta arriva (in attesa)', async () => {
+    const r = await registraTrainer({ presentazione: undefined });
+    expect(r.status).toBe(201);
+    expect(r.body.inAttesa).toBe(true);
+    const luca = await prisma.user.findUnique({ where: { email: 'luca@test.com' } });
+    expect(luca).toMatchObject({ approvato: false, presentazione: null });
+    // Troppo lunga invece no
+    expect((await registraTrainer({ email: 'altro@test.com', presentazione: 'x'.repeat(501) })).status).toBe(400);
+  });
+
+  it('il numero di clienti (a fasce) è obbligatorio per chi non ha invito, e solo dalle fasce previste', async () => {
+    const senza = await registraTrainer({ fasciaClienti: undefined });
+    expect(senza.status).toBe(400);
+    expect(senza.body.errore).toBe('Indica quanti clienti segui');
+    expect((await registraTrainer({ fasciaClienti: '1000' })).status).toBe(400);
     expect(await prisma.user.count({ where: { email: 'luca@test.com' } })).toBe(0);
   });
 
@@ -63,7 +75,7 @@ describe('Trainer in attesa di approvazione', () => {
     const lista = await api().get('/admin/trainer-in-attesa').set(auth(tF));
     expect(lista.status).toBe(200);
     expect(lista.body).toHaveLength(1);
-    expect(lista.body[0]).toMatchObject({ nome: 'Luca', email: 'luca@test.com', presentazione: PRESENTAZIONE });
+    expect(lista.body[0]).toMatchObject({ nome: 'Luca', email: 'luca@test.com', presentazione: PRESENTAZIONE, fasciaClienti: '11-30' });
     expect(lista.body[0].password).toBeUndefined();
 
     const tM = await token('marta@test.com');
@@ -115,7 +127,7 @@ describe('Trainer in attesa di approvazione', () => {
 
   it('con un invito trainer si è subito attivi, come prima', async () => {
     const inv = (await api().post('/admin/inviti-trainer').set(auth(tF)).send({ nota: 'Luca' })).body;
-    const r = await registraTrainer({ codiceInvito: inv.codice, presentazione: undefined });
+    const r = await registraTrainer({ codiceInvito: inv.codice, presentazione: undefined, fasciaClienti: undefined });
     expect(r.status).toBe(201);
     expect(r.body.inAttesa).toBe(false);
     expect((await prisma.user.findUnique({ where: { email: 'luca@test.com' } }))?.approvato).toBe(true);

@@ -13,14 +13,19 @@ const router = Router();
 // Stesse regole della registrazione per ogni nuova password.
 const passwordSchema = z.string().min(8, 'La password deve avere almeno 8 caratteri').max(72);
 
+// Fasce di clienti seguiti, chieste ai trainer che si registrano senza invito.
+export const FASCE_CLIENTI = ['1-10', '11-30', '31-50', '50+'] as const;
+
 const registerSchema = z.object({
   nome: z.string().trim().min(2, 'Il nome deve avere almeno 2 caratteri').max(60),
   email: z.string().trim().toLowerCase().email('Email non valida'),
   password: z.string().min(8, 'La password deve avere almeno 8 caratteri').max(72), // bcrypt usa solo i primi 72 byte
   ruolo: z.enum(['TRAINER', 'CLIENTE']).default('CLIENTE'),
   codiceInvito: z.string().max(20).optional(),
-  // Solo per i trainer senza invito: due righe per presentarsi all'amministratore.
+  // Solo per i trainer senza invito: due righe (facoltative) per presentarsi all'amministratore.
   presentazione: z.string().trim().max(500, 'La presentazione può avere al massimo 500 caratteri').optional(),
+  // Solo per i trainer senza invito (obbligatoria per loro): quanti clienti seguono, a fasce.
+  fasciaClienti: z.enum(FASCE_CLIENTI).optional(),
 });
 
 // Con INVITI_OBBLIGATORI=1 (variabile su Render) un cliente può registrarsi solo con un invito.
@@ -42,12 +47,13 @@ router.post('/register', limiteRegistrazione, async (req, res) => {
 
   // Un TRAINER con un invito trainer (lo crea solo l'amministratore) è subito attivo.
   // Un TRAINER SENZA invito può registrarsi, ma resta "in attesa" finché l'amministratore non lo
-  // approva: per questo deve presentarsi in due righe. Fino ad allora non può fare niente.
+  // approva (può presentarsi in due righe, se vuole). Fino ad allora non può fare niente.
   // Un CLIENTE si registra con l'invito del suo trainer (con INVITI_OBBLIGATORI=1 è obbligatorio).
   const inAttesa = ruolo === 'TRAINER' && !codiceInvito;
-  const presentazione = risultato.data.presentazione || null;
-  if (inAttesa && (!presentazione || presentazione.length < 10)) {
-    res.status(400).json({ errore: 'Presentati in poche righe (almeno 10 caratteri): palestra, città, quanti clienti segui' });
+  const presentazione = risultato.data.presentazione || null; // facoltativa
+  const fasciaClienti = risultato.data.fasciaClienti ?? null;
+  if (inAttesa && !fasciaClienti) {
+    res.status(400).json({ errore: 'Indica quanti clienti segui' });
     return;
   }
 
@@ -94,7 +100,7 @@ router.post('/register', limiteRegistrazione, async (req, res) => {
           password: passwordHash,
           ruolo,
           trainerId,
-          ...(inAttesa ? { approvato: false, presentazione, richiestaIl: new Date() } : {}),
+          ...(inAttesa ? { approvato: false, presentazione, fasciaClienti, richiestaIl: new Date() } : {}),
         },
       });
       if (codiceInvito) {
