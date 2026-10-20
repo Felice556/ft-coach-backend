@@ -268,4 +268,72 @@ router.get('/me', autentica, async (req, res) => {
   res.json(utente);
 });
 
+// ---------- Eliminare il proprio account ----------
+// Chiesto da Google Play (e dal GDPR): ognuno può cancellare il proprio account dall'app.
+// È definitivo, quindi servono la password e la parola "ELIMINA" scritta a mano.
+// Regole di sicurezza:
+// - l'amministratore NON si può eliminare dall'app (senza di lui nessuno può invitare trainer);
+// - un trainer con clienti ancora collegati non può eliminarsi: i clienti resterebbero senza trainer.
+const eliminaAccountSchema = z.object({
+  password: z.string().min(1, 'Scrivi la tua password').max(72),
+  conferma: z.string().max(20),
+});
+
+router.delete('/me', limiteCambioPassword, autentica, async (req, res) => {
+  const risultato = eliminaAccountSchema.safeParse(req.body);
+  if (!risultato.success) {
+    res.status(400).json({ errori: risultato.error.issues });
+    return;
+  }
+  const { password, conferma } = risultato.data;
+  if (conferma.trim().toUpperCase() !== 'ELIMINA') {
+    res.status(400).json({ errore: 'Per confermare scrivi ELIMINA' });
+    return;
+  }
+  const utente = await prisma.user.findUnique({ where: { id: (req as any).userId as number } });
+  if (!utente) {
+    res.status(404).json({ errore: 'Utente non trovato' });
+    return;
+  }
+  // La password serve anche qui: chi trova un telefono sbloccato non può cancellare l'account.
+  if (!(await bcrypt.compare(password, utente.password))) {
+    res.status(400).json({ errore: 'La password non è corretta' });
+    return;
+  }
+  if (utente.admin) {
+    res.status(403).json({ errore: "L'account amministratore non si può eliminare dall'app" });
+    return;
+  }
+  if (utente.ruolo === 'TRAINER') {
+    const clienti = await prisma.user.count({ where: { trainerId: utente.id } });
+    if (clienti > 0) {
+      res.status(409).json({
+        errore: `Hai ancora ${clienti === 1 ? '1 cliente collegato' : `${clienti} clienti collegati`}: scrivi all'amministratore dell'app per chiudere o trasferire i loro account, poi potrai eliminare il tuo.`,
+      });
+      return;
+    }
+  }
+
+  const id = utente.id;
+  // Tutto in una transazione: o si cancella tutto, o non si cancella niente.
+  await prisma.$transaction(async (tx) => {
+    if (utente.ruolo === 'CLIENTE') {
+      // Prima le serie e gli allenamenti conclusi (bloccano la cancellazione di esercizi e schede),
+      // poi misure e schede (gli esercizi delle schede si cancellano insieme a loro).
+      await tx.registroAllenamento.deleteMany({ where: { clienteId: id } });
+      await tx.sessioneAllenamento.deleteMany({ where: { clienteId: id } });
+      await tx.misuraCorporea.deleteMany({ where: { OR: [{ clienteId: id }, { inseritaDaId: id }] } });
+      await tx.scheda.deleteMany({ where: { clienteId: id } });
+    } else {
+      // Trainer senza clienti: i suoi inviti (non servono più a nessuno). Libreria esercizi
+      // e note salvate si cancellano da sole insieme a lui (onDelete: Cascade).
+      await tx.invito.deleteMany({ where: { trainerId: id } });
+    }
+    // L'invito con cui si era registrato resta nello storico di chi l'ha creato, senza più il collegamento.
+    await tx.invito.updateMany({ where: { usatoDaId: id }, data: { usatoDaId: null } });
+    await tx.user.delete({ where: { id } });
+  });
+  res.status(204).send();
+});
+
 export default router;
