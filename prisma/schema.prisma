@@ -30,6 +30,15 @@ model User {
   // migrazione "trainer_separati" sul primo trainer (Felice). Nessuno può diventarlo da sé.
   admin Boolean @default(false)
 
+  // Solo per i TRAINER che si registrano da soli, SENZA invito: l'account resta bloccato
+  // finché l'amministratore non lo approva (false = in attesa). Con un invito trainer, o per
+  // i clienti, è subito true. Tutti gli account esistenti prima di questa modifica sono true.
+  approvato     Boolean   @default(true)
+  // Due righe con cui il trainer in attesa si presenta all'amministratore (palestra, città...).
+  presentazione String?
+  // Quando ha chiesto di entrare (solo per i trainer in attesa).
+  richiestaIl   DateTime?
+
   // Solo per i CLIENTI: il trainer che li segue. Ogni trainer vede SOLO i suoi clienti.
   // Per i trainer resta vuoto.
   trainerId Int?

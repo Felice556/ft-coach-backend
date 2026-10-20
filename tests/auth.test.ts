@@ -24,16 +24,17 @@ describe('Accesso e registrazione', () => {
     expect(r2.body).toEqual(r.body);
   });
 
-  it('registrazione come TRAINER: senza invito trainer è impossibile (anche col vecchio codice segreto)', async () => {
+  it('registrazione come TRAINER senza invito: senza presentazione rifiutata, il vecchio codice segreto non serve a niente', async () => {
     const senza = await api().post('/register').send({ nome: 'Hacker', email: 'h@x.com', password: 'password123', ruolo: 'TRAINER' });
-    expect(senza.status).toBe(403);
-    // Il vecchio campo codiceTrainer non serve più a niente, anche se qualcuno lo conosce.
+    expect(senza.status).toBe(400);
+    // Il vecchio campo codiceTrainer non serve più a niente, anche se qualcuno lo conosce:
+    // senza invito si resta comunque "in attesa" (vedi trainer-in-attesa.test.ts).
     process.env.CODICE_TRAINER = 'vecchio-codice';
     const vecchio = await api()
       .post('/register')
       .send({ nome: 'Hacker', email: 'h@x.com', password: 'password123', ruolo: 'TRAINER', codiceTrainer: 'vecchio-codice' });
     delete process.env.CODICE_TRAINER;
-    expect(vecchio.status).toBe(403);
+    expect(vecchio.status).toBe(400);
     expect(await prisma.user.count({ where: { email: 'h@x.com' } })).toBe(0);
   });
 

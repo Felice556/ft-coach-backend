@@ -26,6 +26,9 @@ export function creaToken(utente: { id: number; ruolo: Ruolo; versioneToken: num
 
 // Rotte che si possono usare anche con una password temporanea (serve per cambiarla).
 const PERMESSE_CON_PASSWORD_TEMPORANEA = new Set(['/me/password']);
+// Rotte permesse a un trainer in attesa di approvazione: sapere chi è, cambiare la password,
+// eliminare l'account (se ci ripensa). Tutto il resto è bloccato finché l'admin non lo approva.
+const PERMESSE_IN_ATTESA = new Set(['GET /me', 'PUT /me/password', 'DELETE /me']);
 
 // Legge l'header, verifica il token e "allega" i dati dell'utente alla request.
 // In più controlla nel database che l'utente esista ancora e che il token non sia
@@ -48,7 +51,7 @@ export async function autentica(req: Request, res: Response, next: NextFunction)
 
   const utente = await prisma.user.findUnique({
     where: { id: payload.userId },
-    select: { ruolo: true, versioneToken: true, passwordTemporanea: true, admin: true },
+    select: { ruolo: true, versioneToken: true, passwordTemporanea: true, admin: true, approvato: true },
   });
   if (!utente || (payload.v ?? 0) !== utente.versioneToken) {
     res.status(401).json({ errore: 'Sessione non più valida, accedi di nuovo' });
@@ -58,6 +61,12 @@ export async function autentica(req: Request, res: Response, next: NextFunction)
   // Password impostata dal trainer: finché l'utente non ne sceglie una sua, può solo cambiarla.
   if (utente.passwordTemporanea && !PERMESSE_CON_PASSWORD_TEMPORANEA.has(req.path)) {
     res.status(403).json({ errore: 'Devi prima scegliere una nuova password', codice: 'CAMBIO_PASSWORD' });
+    return;
+  }
+
+  // Trainer registrato da solo e non ancora approvato dall'amministratore: può solo aspettare.
+  if (utente.ruolo === 'TRAINER' && !utente.approvato && !PERMESSE_IN_ATTESA.has(`${req.method} ${req.path}`)) {
+    res.status(403).json({ errore: 'Il tuo account trainer è in attesa di approvazione', codice: 'IN_ATTESA' });
     return;
   }
 

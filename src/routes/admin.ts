@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../prisma.js';
 import { autentica, richiedeAdmin } from '../middleware/auth.js';
+import { leggiId } from '../utils.js';
 
 const router = Router();
 
@@ -12,7 +13,7 @@ router.get('/admin/trainer', autentica, richiedeAdmin, async (_req, res) => {
   const da30giorni = new Date(Date.now() - 30 * GIORNO);
 
   const trainer = await prisma.user.findMany({
-    where: { ruolo: 'TRAINER' },
+    where: { ruolo: 'TRAINER', approvato: true }, // quelli in attesa stanno nella loro lista
     orderBy: { id: 'asc' },
     select: {
       id: true,
@@ -62,6 +63,51 @@ router.get('/admin/trainer', autentica, richiedeAdmin, async (_req, res) => {
     },
     trainer: righe,
   });
+});
+
+// ---------- Trainer in attesa di approvazione ----------
+// Si sono registrati da soli (senza invito): solo l'amministratore può approvarli o rifiutarli.
+
+router.get('/admin/trainer-in-attesa', autentica, richiedeAdmin, async (_req, res) => {
+  const inAttesa = await prisma.user.findMany({
+    where: { ruolo: 'TRAINER', approvato: false },
+    orderBy: { richiestaIl: 'asc' }, // prima chi aspetta da più tempo
+    select: { id: true, nome: true, email: true, presentazione: true, richiestaIl: true }, // mai la password
+  });
+  res.json(inAttesa);
+});
+
+router.post('/admin/trainer/:id/approva', autentica, richiedeAdmin, async (req, res) => {
+  const id = leggiId(req.params.id, res);
+  if (id === null) return;
+  // updateMany con le condizioni: si approva solo un TRAINER davvero in attesa.
+  const { count } = await prisma.user.updateMany({
+    where: { id, ruolo: 'TRAINER', approvato: false },
+    data: { approvato: true },
+  });
+  if (count === 0) {
+    res.status(404).json({ errore: 'Richiesta non trovata (forse è già stata gestita)' });
+    return;
+  }
+  res.status(204).send();
+});
+
+// Rifiutare = cancellare l'account in attesa. Non ha clienti né schede: finché era in attesa
+// non poteva creare niente. Se ci riprova, l'amministratore vedrà una nuova richiesta.
+router.post('/admin/trainer/:id/rifiuta', autentica, richiedeAdmin, async (req, res) => {
+  const id = leggiId(req.params.id, res);
+  if (id === null) return;
+  const trainer = await prisma.user.findFirst({ where: { id, ruolo: 'TRAINER', approvato: false } });
+  if (!trainer) {
+    res.status(404).json({ errore: 'Richiesta non trovata (forse è già stata gestita)' });
+    return;
+  }
+  await prisma.$transaction(async (tx) => {
+    await tx.invito.deleteMany({ where: { trainerId: id } });
+    await tx.invito.updateMany({ where: { usatoDaId: id }, data: { usatoDaId: null } });
+    await tx.user.delete({ where: { id } });
+  });
+  res.status(204).send();
 });
 
 export default router;

@@ -19,6 +19,8 @@ const registerSchema = z.object({
   password: z.string().min(8, 'La password deve avere almeno 8 caratteri').max(72), // bcrypt usa solo i primi 72 byte
   ruolo: z.enum(['TRAINER', 'CLIENTE']).default('CLIENTE'),
   codiceInvito: z.string().max(20).optional(),
+  // Solo per i trainer senza invito: due righe per presentarsi all'amministratore.
+  presentazione: z.string().trim().max(500, 'La presentazione può avere al massimo 500 caratteri').optional(),
 });
 
 // Con INVITI_OBBLIGATORI=1 (variabile su Render) un cliente può registrarsi solo con un invito.
@@ -38,10 +40,14 @@ router.post('/register', limiteRegistrazione, async (req, res) => {
   const { nome, email, password, ruolo } = risultato.data;
   const codiceInvito = risultato.data.codiceInvito?.trim() ? normalizzaCodice(risultato.data.codiceInvito) : undefined;
 
-  // Un TRAINER si registra SOLO con un invito trainer, che può creare solo l'amministratore.
+  // Un TRAINER con un invito trainer (lo crea solo l'amministratore) è subito attivo.
+  // Un TRAINER SENZA invito può registrarsi, ma resta "in attesa" finché l'amministratore non lo
+  // approva: per questo deve presentarsi in due righe. Fino ad allora non può fare niente.
   // Un CLIENTE si registra con l'invito del suo trainer (con INVITI_OBBLIGATORI=1 è obbligatorio).
-  if (ruolo === 'TRAINER' && !codiceInvito) {
-    res.status(403).json({ errore: 'Per registrarti come trainer serve un invito' });
+  const inAttesa = ruolo === 'TRAINER' && !codiceInvito;
+  const presentazione = risultato.data.presentazione || null;
+  if (inAttesa && (!presentazione || presentazione.length < 10)) {
+    res.status(400).json({ errore: 'Presentati in poche righe (almeno 10 caratteri): palestra, città, quanti clienti segui' });
     return;
   }
 
@@ -81,7 +87,16 @@ router.post('/register', limiteRegistrazione, async (req, res) => {
         trainerId = amministratore?.id ?? null;
       }
 
-      const nuovo = await tx.user.create({ data: { nome, email, password: passwordHash, ruolo, trainerId } });
+      const nuovo = await tx.user.create({
+        data: {
+          nome,
+          email,
+          password: passwordHash,
+          ruolo,
+          trainerId,
+          ...(inAttesa ? { approvato: false, presentazione, richiestaIl: new Date() } : {}),
+        },
+      });
       if (codiceInvito) {
         const { count } = await tx.invito.updateMany({
           where: { codice: codiceInvito, ruolo, usatoIl: null, annullatoIl: null, scadeIl: { gt: new Date() } },
@@ -100,7 +115,7 @@ router.post('/register', limiteRegistrazione, async (req, res) => {
   }
 
   // Non restituiamo mai la password, nemmeno hashata.
-  res.status(201).json({ id: utente.id, nome: utente.nome, ruolo: utente.ruolo });
+  res.status(201).json({ id: utente.id, nome: utente.nome, ruolo: utente.ruolo, inAttesa });
 });
 
 const loginSchema = z.object({
@@ -140,6 +155,8 @@ router.post('/login', limiteLoginPerIp, limiteLoginPerEmail, async (req, res) =>
     ruolo: utente.ruolo,
     nome: utente.nome,
     passwordTemporanea: utente.passwordTemporanea,
+    // Trainer registrato da solo, non ancora approvato: il frontend mostra la schermata d'attesa.
+    inAttesa: utente.ruolo === 'TRAINER' && !utente.approvato,
   });
 });
 
@@ -263,9 +280,14 @@ router.get('/clienti', autentica, richiedeRuolo('TRAINER'), async (req, res) => 
 router.get('/me', autentica, async (req, res) => {
   const utente = await prisma.user.findUnique({
     where: { id: (req as any).userId as number },
-    select: { id: true, nome: true, ruolo: true, admin: true }, // mai la password
+    select: { id: true, nome: true, ruolo: true, admin: true, approvato: true }, // mai la password
   });
-  res.json(utente);
+  if (!utente) {
+    res.status(404).json({ errore: 'Utente non trovato' });
+    return;
+  }
+  const { approvato, ...resto } = utente;
+  res.json({ ...resto, inAttesa: utente.ruolo === 'TRAINER' && !approvato });
 });
 
 // ---------- Eliminare il proprio account ----------

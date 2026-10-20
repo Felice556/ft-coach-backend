@@ -44,7 +44,7 @@ User (TRAINER | CLIENTE) ── each client belongs to one trainer; one trainer 
 Security was a priority, because the app stores personal and health data:
 
 - **Multi-trainer, fully separated**: every client belongs to one trainer, and every trainer route is scoped to *their own* clients (plans, exercises, history, workouts, body measurements, invites, password resets). Another trainer gets a 404, so they can't even tell that the data exists. The rule lives in one place (`src/proprieta.ts`).
-- **One admin, who can't be created from outside**: new trainers can only sign up with a trainer invite, and only the admin can create those. The `admin` flag is read from the database on every request, it isn't in the token, and no route can write it: it was set once by a migration.
+- **One admin, who can't be created from outside**: a new trainer signs up either with a trainer invite (only the admin can create those) or on their own, in which case the account stays **pending** and can do nothing until the admin approves it. The `admin` flag is read from the database on every request, it isn't in the token, and no route can write it: it was set once by a migration.
 - **Invite-only sign-up**: clients register with a single-use, expiring code (`XXXX-XXXX`, generated with `crypto.randomInt`, no ambiguous characters). The code is consumed **atomically** inside a transaction, so it can't be used twice even with simultaneous requests.
 - **Revocable sessions**: every token carries a version number checked against the database, so changing or resetting a password **logs out every device**. The role is always read from the database, never trusted from the token.
 - **Sessions that renew themselves**: active users receive a fresh token (via a response header) at most every 12 hours, so they never have to log in again, while inactive sessions still expire after 30 days.
@@ -68,7 +68,7 @@ Security was a priority, because the app stores personal and health data:
 | **Completed workouts** | `GET/POST /sessioni`, `PUT /sessioni/:id/feedback` |
 | **Body composition** | `GET /misure` · `PUT /misure` · `DELETE /misure/:id` |
 | **Invites** (trainer) | `GET/POST /inviti` · `POST /inviti/:id/annulla` |
-| **Admin only** | `GET/POST /admin/inviti-trainer` · `POST /admin/inviti-trainer/:id/annulla` · `GET /admin/trainer` (overview: trainers, clients, activity; numbers only) |
+| **Admin only** | `GET/POST /admin/inviti-trainer` · `POST /admin/inviti-trainer/:id/annulla` · `GET /admin/trainer` (overview: trainers, clients, activity; numbers only) · `GET /admin/trainer-in-attesa` · `POST /admin/trainer/:id/approva` · `POST /admin/trainer/:id/rifiuta` |
 | **Libraries** (trainer) | `GET/POST /preset-esercizi` · `PATCH/DELETE /preset-esercizi/:id` · `GET/POST /preset-note` · `DELETE /preset-note/:id` |
 | **Health check** | `GET /health` |
 
@@ -76,7 +76,7 @@ Security was a priority, because the app stores personal and health data:
 
 ## ✅ Tests
 
-**112 automated tests** (Vitest + Supertest) run against a real PostgreSQL database, on every push, with **GitHub Actions**.
+**121 automated tests** (Vitest + Supertest) run against a real PostgreSQL database, on every push, with **GitHub Actions**.
 They call the real API routes and check the behaviour that matters most:
 
 | File | What it checks |
@@ -87,6 +87,7 @@ They call the real API routes and check the behaviour that matters most:
 | `tests/misure.test.ts` | body weight and body-fat %: who can write what, who can see what, impossible values |
 | `tests/libreria.test.ts` | exercise library grouped by muscle group: only the owner trainer can change it, unknown groups rejected |
 | `tests/trainer-separati.test.ts` | **two trainers side by side**: each one sees and changes only their own clients' data on every route, the admin included; only the admin can invite trainers; a trainer invite can't create a client and vice versa; nobody can make themselves admin; the admin overview shows only numbers, never other trainers' client data |
+| `tests/trainer-in-attesa.test.ts` | trainers who sign up without an invite: they must introduce themselves, stay blocked on every route until approved, only the admin can list/approve/reject them, approve/reject never touch active trainers, clients or the admin |
 | `tests/elimina-account.test.ts` | deleting your own account (required by Google Play and the GDPR): password + typed confirmation, all of a client's data removed in one transaction without touching anyone else's, the admin can't delete themselves, a trainer with clients can't leave them orphaned |
 | `tests/superset-e-feedback.test.ts` | linking exercises into supersets/jumpsets, end-of-workout feedback (effort 1-10 and a note) that only the client can write and that survives re-closing the workout |
 
