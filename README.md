@@ -6,7 +6,7 @@ REST API for **Liftio** (formerly FT Coach), a mobile-first web app for personal
 
 I'm a junior developer and I prepare personalized training plans: I built Liftio to manage them, and it's used by my real clients.
 
-🔗 **[Live app](https://ft-coach.pages.dev)** · **[Frontend repo (with screenshots)](https://github.com/Felice556/ft-coach-frontend)**
+🔗 **[Live app: liftio.it](https://liftio.it)** · **[Frontend repo (with screenshots)](https://github.com/Felice556/ft-coach-frontend)**
 
 ![Liftio screenshots](https://raw.githubusercontent.com/Felice556/ft-coach-frontend/main/docs/screenshots/hero.webp)
 
