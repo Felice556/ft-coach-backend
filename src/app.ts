@@ -12,6 +12,7 @@ import invitiRouter from './routes/inviti.js';
 import { HEADER_NUOVO_TOKEN } from './middleware/auth.js';
 import misureRouter from './routes/misure.js';
 import adminRouter from './routes/admin.js';
+import { messaggiNellaLingua } from './traduzioni.js';
 
 // L'app Express, senza avviarla: così i test (tests/) possono usarla direttamente,
 // senza aprire una porta. L'avvio vero è in server.ts.
@@ -34,6 +35,9 @@ app.use(
   }),
 );
 // Corpo delle richieste al massimo 100 KB: basta e avanza per una scheda, blocca invii enormi.
+// Messaggi d'errore in inglese per chi usa l'app in inglese (vedi traduzioni.ts).
+// Prima di tutto il resto, così si traducono anche quelli dei limiti e del JSON malformato.
+app.use(messaggiNellaLingua);
 app.use(express.json({ limit: '100kb' }));
 app.use(limiteGenerale);
 

@@ -329,7 +329,8 @@ router.get('/me', autentica, async (req, res) => {
 
 // ---------- Eliminare il proprio account ----------
 // Chiesto da Google Play (e dal GDPR): ognuno può cancellare il proprio account dall'app.
-// È definitivo, quindi servono la password e la parola "ELIMINA" scritta a mano.
+// È definitivo, quindi servono la password e la parola "ELIMINA" scritta a mano
+// (oppure "DELETE", la stessa parola per chi usa l'app in inglese).
 // Regole di sicurezza:
 // - l'amministratore NON si può eliminare dall'app (senza di lui nessuno può invitare trainer);
 // - un trainer con clienti ancora collegati non può eliminarsi: i clienti resterebbero senza trainer.
@@ -345,7 +346,7 @@ router.delete('/me', limiteCambioPassword, autentica, async (req, res) => {
     return;
   }
   const { password, conferma } = risultato.data;
-  if (conferma.trim().toUpperCase() !== 'ELIMINA') {
+  if (!['ELIMINA', 'DELETE'].includes(conferma.trim().toUpperCase())) {
     res.status(400).json({ errore: 'Per confermare scrivi ELIMINA' });
     return;
   }

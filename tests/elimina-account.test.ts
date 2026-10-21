@@ -35,6 +35,14 @@ describe('Eliminare il proprio account', () => {
     expect(await prisma.user.findUnique({ where: { id: ids.alessio.id } })).not.toBeNull();
   });
 
+  it('in inglese la parola per confermare è DELETE', async () => {
+    const r = await api().delete('/me').set(auth(tG)).set('Accept-Language', 'en').send({ password: 'password123', conferma: 'no' });
+    expect(r.status).toBe(400);
+    expect(r.body.errore).toBe('To confirm, type DELETE');
+    expect((await elimina(tG, { password: 'password123', conferma: 'delete' })).status).toBe(204);
+    expect(await prisma.user.findUnique({ where: { id: ids.giulia.id } })).toBeNull();
+  });
+
   it('un cliente elimina il suo account e tutti i suoi dati, senza toccare quelli degli altri', async () => {
     const { invito } = await alessioConDati();
     // Anche Giulia ha una scheda: deve restare intatta.
