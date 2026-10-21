@@ -386,6 +386,7 @@ router.delete('/me', limiteCambioPassword, autentica, async (req, res) => {
       await tx.cardioFatto.deleteMany({ where: { clienteId: id } });
       await tx.obiettivoCardio.deleteMany({ where: { clienteId: id } });
       await tx.passiGiornalieri.deleteMany({ where: { clienteId: id } });
+      await tx.giornoDiario.deleteMany({ where: { clienteId: id } }); // i pasti si cancellano con le giornate
       await tx.scheda.deleteMany({ where: { clienteId: id } });
     } else {
       // Trainer senza clienti: i suoi inviti (non servono più a nessuno). Libreria esercizi

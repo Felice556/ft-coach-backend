@@ -107,6 +107,19 @@ export const INGLESE: Record<string, string> = {
   'Attività cardio non trovata': 'Cardio activity not found',
   'Sessione di cardio non trovata': 'Cardio session not found',
 
+  // Diario alimentare
+  'Ogni pasto può avere al massimo 500 caratteri': 'Each meal can be at most 500 characters',
+  'Ora non valida': 'Invalid time',
+  'Olio tra 0 e 20 cucchiai': 'Oil between 0 and 20 tablespoons',
+  'Acqua tra 0 e 10 litri': 'Water between 0 and 10 litres',
+  'Le note possono avere al massimo 300 caratteri': 'Notes can be at most 300 characters',
+  'Il commento può avere al massimo 1000 caratteri': 'The comment can be at most 1000 characters',
+  'Il consenso al diario lo dà il cliente': 'Consent to the diary is given by the client',
+  'Il diario lo scrive il cliente': 'The diary is written by the client',
+  'Per usare il diario serve il tuo consenso': 'To use the diary we need your consent',
+  'Il commento lo scrive il trainer': 'The comment is written by the trainer',
+  'Il cliente non ha compilato il diario di quel giorno': 'The client hasn’t filled in the diary for that day',
+
   // Generici
   'Identificativo non valido': 'Invalid identifier',
   'Dati della richiesta non validi': 'Invalid request data',

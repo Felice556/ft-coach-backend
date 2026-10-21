@@ -13,6 +13,7 @@ import { HEADER_NUOVO_TOKEN } from './middleware/auth.js';
 import misureRouter from './routes/misure.js';
 import adminRouter from './routes/admin.js';
 import cardioRouter from './routes/cardio.js';
+import diarioRouter from './routes/diario.js';
 import { messaggiNellaLingua } from './traduzioni.js';
 
 // L'app Express, senza avviarla: così i test (tests/) possono usarla direttamente,
@@ -59,6 +60,7 @@ app.use(invitiRouter);
 app.use(misureRouter);
 app.use(adminRouter);
 app.use(cardioRouter);
+app.use(diarioRouter);
 
 // Gestore degli errori imprevisti (database irraggiungibile, bug, ecc.).
 // Express 5 ci porta qui anche gli errori delle rotte async: la singola richiesta
