@@ -76,7 +76,65 @@ model User {
   misure         MisuraCorporea[] @relation("MisureDelCliente")
   misureInserite MisuraCorporea[] @relation("MisureInserite")
 
+  // Cardio e passi (solo CLIENTI): il piano cardio deciso dal trainer, il cardio fatto e i passi.
+  // obiettivoPassi = passi al giorno da raggiungere, lo decide il trainer (null = nessun obiettivo).
+  obiettivoPassi  Int?
+  obiettiviCardio ObiettivoCardio[]
+  cardioFatto     CardioFatto[]
+  passi           PassiGiornalieri[]
+
   @@index([trainerId])
+}
+
+// Un'attività cardio del piano che il trainer assegna al cliente, fuori dalle schede di allenamento.
+// Es. "Camminata in salita · 30 minuti · 3 volte a settimana · pendenza 8%".
+model ObiettivoCardio {
+  id             Int      @id @default(autoincrement())
+  attivita       String // es. "Camminata veloce", "Bici", "Ellittica"
+  minuti         Int // durata di ogni sessione
+  volteSettimana Int // quante sessioni a settimana
+  nota           String? // intensità, zona cardio, pendenza...
+  creatoIl       DateTime @default(now())
+
+  clienteId Int
+  cliente   User @relation(fields: [clienteId], references: [id])
+
+  sessioni CardioFatto[]
+
+  @@index([clienteId])
+}
+
+// Una sessione di cardio fatta dal cliente (la scrive lui). Se togli l'attività dal piano,
+// le sessioni fatte restano: perdono solo il collegamento, il nome dell'attività è salvato qui.
+model CardioFatto {
+  id         Int      @id @default(autoincrement())
+  attivita   String
+  minuti     Int
+  distanzaKm Float? // facoltativa
+  nota       String?
+  data       DateTime @db.Date // solo il giorno
+  creatoIl   DateTime @default(now())
+
+  obiettivoId Int?
+  obiettivo   ObiettivoCardio? @relation(fields: [obiettivoId], references: [id], onDelete: SetNull)
+
+  clienteId Int
+  cliente   User @relation(fields: [clienteId], references: [id])
+
+  @@index([clienteId, data])
+}
+
+// Passi fatti dal cliente in un giorno: uno solo per giorno (reinserendo, si corregge).
+model PassiGiornalieri {
+  id           Int      @id @default(autoincrement())
+  passi        Int
+  data         DateTime @db.Date
+  aggiornatoIl DateTime @updatedAt
+
+  clienteId Int
+  cliente   User @relation(fields: [clienteId], references: [id])
+
+  @@unique([clienteId, data])
 }
 
 enum TipoMisura {

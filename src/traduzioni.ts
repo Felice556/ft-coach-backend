@@ -92,6 +92,21 @@ export const INGLESE: Record<string, string> = {
   'Data non valida': 'Invalid date',
   'Data non valida o nel futuro': 'Invalid date or in the future',
 
+  // Cardio e passi
+  'Il piano cardio lo decide il trainer': 'The cardio plan is set by the trainer',
+  'Cardio fatto e passi li inserisce il cliente': 'Cardio done and steps are entered by the client',
+  'Scrivi l’attività': 'Enter the activity',
+  'Il nome dell’attività è troppo lungo': 'The activity name is too long',
+  'La nota può avere al massimo 200 caratteri': 'The note can be at most 200 characters',
+  'Minuti tra 1 e 600': 'Minutes between 1 and 600',
+  'Da 1 a 14 volte a settimana': 'From 1 to 14 times a week',
+  'Distanza tra 0 e 300 km': 'Distance between 0 and 300 km',
+  'Passi tra 0 e 100.000': 'Steps between 0 and 100,000',
+  'Obiettivo tra 1.000 e 50.000 passi': 'Target between 1,000 and 50,000 steps',
+  'Il piano cardio può avere al massimo 10 attività': 'The cardio plan can have at most 10 activities',
+  'Attività cardio non trovata': 'Cardio activity not found',
+  'Sessione di cardio non trovata': 'Cardio session not found',
+
   // Generici
   'Identificativo non valido': 'Invalid identifier',
   'Dati della richiesta non validi': 'Invalid request data',

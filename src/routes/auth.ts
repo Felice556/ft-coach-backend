@@ -383,6 +383,9 @@ router.delete('/me', limiteCambioPassword, autentica, async (req, res) => {
       await tx.registroAllenamento.deleteMany({ where: { clienteId: id } });
       await tx.sessioneAllenamento.deleteMany({ where: { clienteId: id } });
       await tx.misuraCorporea.deleteMany({ where: { OR: [{ clienteId: id }, { inseritaDaId: id }] } });
+      await tx.cardioFatto.deleteMany({ where: { clienteId: id } });
+      await tx.obiettivoCardio.deleteMany({ where: { clienteId: id } });
+      await tx.passiGiornalieri.deleteMany({ where: { clienteId: id } });
       await tx.scheda.deleteMany({ where: { clienteId: id } });
     } else {
       // Trainer senza clienti: i suoi inviti (non servono più a nessuno). Libreria esercizi
