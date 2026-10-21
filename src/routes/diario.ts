@@ -15,6 +15,7 @@ const router = Router();
 // - Ritirando il consenso, il diario del cliente viene cancellato.
 
 const GIORNI_STORICO = 60;
+const MAX_VOCI_EXTRA = 6; // voci in più al giorno ("Post cena", "Pre allenamento"…)
 const TIPI_PASTO = ['COLAZIONE', 'SPUNTINO_MATTINA', 'PRANZO', 'SPUNTINO_POMERIGGIO', 'CENA'] as const;
 
 const giornoSchema = z
@@ -35,7 +36,13 @@ const pastoSchema = z.object({
     .optional(),
 });
 
+const voceExtraSchema = pastoSchema.extend({
+  nome: z.string().trim().min(1, 'Dai un nome alla voce').max(40, 'Il nome della voce può avere al massimo 40 caratteri'),
+});
+
 const giornataSchema = z.object({
+  // Voci in più scelte dal cliente, nell'ordine in cui le vuole vedere (quelle con testo vuoto vengono tolte).
+  extra: z.array(voceExtraSchema).max(MAX_VOCI_EXTRA, 'Al massimo 6 voci in più al giorno').optional(),
   // Pasti della giornata: quelli assenti o con testo vuoto vengono tolti.
   pasti: z.object(Object.fromEntries(TIPI_PASTO.map((t) => [t, pastoSchema.nullable().optional()])) as Record<(typeof TIPI_PASTO)[number], z.ZodOptional<z.ZodNullable<typeof pastoSchema>>>),
   olioCucchiai: z.number().min(0, 'Olio tra 0 e 20 cucchiai').max(20, 'Olio tra 0 e 20 cucchiai').nullable().optional(),
@@ -59,7 +66,7 @@ const campiGiorno = {
   sensazioni: true,
   commentoTrainer: true,
   commentatoIl: true,
-  pasti: { select: { tipo: true, testo: true, ora: true } },
+  pasti: { select: { tipo: true, nome: true, testo: true, ora: true }, orderBy: { id: 'asc' } }, // fissi prima, poi le voci in più nel loro ordine
 } as const;
 
 const giornoDaTesto = (s: string) => new Date(`${s}T00:00:00Z`);
@@ -144,10 +151,15 @@ router.put('/diario/:data', autentica, async (req, res) => {
   const { pasti, sensazioni } = risultato.data;
   const olioCucchiai = mezzoQuarto(risultato.data.olioCucchiai, 0.5);
   const acquaLitri = mezzoQuarto(risultato.data.acquaLitri, 0.25);
-  const pastiPieni = TIPI_PASTO.flatMap((tipo) => {
-    const p = pasti[tipo];
-    return p && p.testo ? [{ tipo, testo: p.testo, ora: p.ora ?? null }] : [];
-  });
+  const pastiPieni: { tipo: (typeof TIPI_PASTO)[number] | 'EXTRA'; nome: string | null; ordine: number; testo: string; ora: string | null }[] = [
+    ...TIPI_PASTO.flatMap((tipo) => {
+      const p = pasti[tipo];
+      return p && p.testo ? [{ tipo, nome: null, ordine: 0, testo: p.testo, ora: p.ora ?? null }] : [];
+    }),
+    ...(risultato.data.extra ?? [])
+      .filter((x) => x.testo)
+      .map((x, i) => ({ tipo: 'EXTRA' as const, nome: x.nome, ordine: i, testo: x.testo, ora: x.ora ?? null })),
+  ];
   const vuota = pastiPieni.length === 0 && !olioCucchiai && !acquaLitri && !sensazioni;
   const giorno = giornoDaTesto(data.data);
   const chiave = { clienteId_data: { clienteId, data: giorno } };

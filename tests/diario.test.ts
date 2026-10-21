@@ -64,8 +64,8 @@ describe('Giornate del diario (cliente)', () => {
     expect(r.body).toMatchObject({ olioCucchiai: 2.5, acquaLitri: 1.5, sensazioni: 'Molta fame nel pomeriggio', commentoTrainer: null });
     expect(r.body.pasti).toEqual(
       expect.arrayContaining([
-        { tipo: 'COLAZIONE', testo: 'Yogurt greco e avena', ora: '07:30' },
-        { tipo: 'PRANZO', testo: 'Pasta al pomodoro, insalata', ora: null },
+        { tipo: 'COLAZIONE', nome: null, testo: 'Yogurt greco e avena', ora: '07:30' },
+        { tipo: 'PRANZO', nome: null, testo: 'Pasta al pomodoro, insalata', ora: null },
       ]),
     );
     expect(r.body.pasti).toHaveLength(2);
@@ -74,7 +74,7 @@ describe('Giornate del diario (cliente)', () => {
   it('risalvando lo stesso giorno lo si corregge, senza duplicati', async () => {
     await salva(tA, oggi(), giornata);
     const r = await salva(tA, oggi(), { pasti: { PRANZO: { testo: 'Riso e pollo' } }, acquaLitri: 2 });
-    expect(r.body.pasti).toEqual([{ tipo: 'PRANZO', testo: 'Riso e pollo', ora: null }]);
+    expect(r.body.pasti).toEqual([{ tipo: 'PRANZO', nome: null, testo: 'Riso e pollo', ora: null }]);
     expect(r.body.olioCucchiai).toBeNull();
     expect(await prisma.giornoDiario.count({ where: { clienteId: ids.alessio.id } })).toBe(1);
   });
@@ -144,5 +144,46 @@ describe('Trainer: legge e commenta', () => {
     expect(r.status).toBe(204);
     expect(await prisma.giornoDiario.count()).toBe(0);
     expect(await prisma.pastoDiario.count()).toBe(0);
+  });
+});
+
+describe('Voci in più', () => {
+  beforeEach(async () => {
+    await consenso(tA);
+  });
+
+  it('il cliente aggiunge voci con un nome suo, anche più d’una, nell’ordine scelto', async () => {
+    const r = await salva(tA, oggi(), {
+      pasti: { CENA: { testo: 'Pesce e verdure', ora: '20:00' } },
+      extra: [
+        { nome: 'Post cena', testo: 'Una tisana e due biscotti', ora: '22:30' },
+        { nome: 'Spuntino', testo: '  ' }, // vuota: non viene salvata
+        { nome: 'Pre allenamento', testo: 'Banana' },
+      ],
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.pasti).toEqual([
+      { tipo: 'CENA', nome: null, testo: 'Pesce e verdure', ora: '20:00' },
+      { tipo: 'EXTRA', nome: 'Post cena', testo: 'Una tisana e due biscotti', ora: '22:30' },
+      { tipo: 'EXTRA', nome: 'Pre allenamento', testo: 'Banana', ora: null },
+    ]);
+    // Il trainer le vede uguali
+    const delTrainer = await api().get(`/diario?clienteId=${ids.alessio.id}`).set(auth(tF));
+    expect(delTrainer.body.giorni[0].pasti).toHaveLength(3);
+  });
+
+  it('una giornata con solo voci in più non è vuota; risalvando si sostituiscono', async () => {
+    await salva(tA, oggi(), { pasti: {}, extra: [{ nome: 'Post cena', testo: 'Yogurt' }] });
+    const r = await salva(tA, oggi(), { pasti: {}, extra: [{ nome: 'Spuntino', testo: 'Mela' }] });
+    expect(r.body.pasti).toEqual([{ tipo: 'EXTRA', nome: 'Spuntino', testo: 'Mela', ora: null }]);
+    expect(await prisma.pastoDiario.count()).toBe(1);
+  });
+
+  it('serve un nome, al massimo 40 caratteri e al massimo 6 voci', async () => {
+    expect((await salva(tA, oggi(), { pasti: {}, extra: [{ nome: '', testo: 'x' }] })).status).toBe(400);
+    expect((await salva(tA, oggi(), { pasti: {}, extra: [{ nome: 'x'.repeat(41), testo: 'x' }] })).status).toBe(400);
+    const sette = Array.from({ length: 7 }, (_, i) => ({ nome: `Voce ${i}`, testo: 'x' }));
+    const r = await salva(tA, oggi(), { pasti: {}, extra: sette });
+    expect(r.status).toBe(400);
   });
 });

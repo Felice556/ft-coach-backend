@@ -119,19 +119,24 @@ enum TipoPasto {
   PRANZO
   SPUNTINO_POMERIGGIO
   CENA
+  EXTRA // voce aggiunta dal cliente, con un nome suo (es. "Post cena", "Pre allenamento")
 }
 
 // Un pasto della giornata, scritto a parole dal cliente (es. "Pasta al pomodoro, insalata").
+// I 5 pasti fissi compaiono al massimo una volta al giorno (lo controlla il server);
+// le voci EXTRA possono essere più d'una, ognuna con il suo nome.
 model PastoDiario {
-  id    Int       @id @default(autoincrement())
-  tipo  TipoPasto
-  testo String
-  ora   String? // "13:15", facoltativa
+  id     Int       @id @default(autoincrement())
+  tipo   TipoPasto
+  nome   String? // solo per EXTRA: il nome scelto dal cliente
+  ordine Int       @default(0) // posizione tra le voci EXTRA (0, 1, 2…)
+  testo  String
+  ora    String? // "13:15", facoltativa
 
   giornoId Int
   giorno   GiornoDiario @relation(fields: [giornoId], references: [id], onDelete: Cascade)
 
-  @@unique([giornoId, tipo])
+  @@index([giornoId])
 }
 
 // Un'attività cardio del piano che il trainer assegna al cliente, fuori dalle schede di allenamento.

@@ -110,6 +110,9 @@ export const INGLESE: Record<string, string> = {
   // Diario alimentare
   'Ogni pasto può avere al massimo 500 caratteri': 'Each meal can be at most 500 characters',
   'Ora non valida': 'Invalid time',
+  'Dai un nome alla voce': 'Give the entry a name',
+  'Il nome della voce può avere al massimo 40 caratteri': 'The entry name can be at most 40 characters',
+  'Al massimo 6 voci in più al giorno': 'At most 6 extra entries per day',
   'Olio tra 0 e 20 cucchiai': 'Oil between 0 and 20 tablespoons',
   'Acqua tra 0 e 10 litri': 'Water between 0 and 10 litres',
   'Le note possono avere al massimo 300 caratteri': 'Notes can be at most 300 characters',
