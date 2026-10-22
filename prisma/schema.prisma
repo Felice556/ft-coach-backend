@@ -108,11 +108,24 @@ model AvvisoProgramma {
   id        Int      @id @default(autoincrement())
   programma String // chiave del programma: "principiante", "intermedio" o "avanzato" (l'elenco sta nel backend)
   creatoIl  DateTime @default(now())
+  // Fino a quando ha già visto gli annunci dell'amministratore su questo programma (null = mai).
+  annuncioVistoIl DateTime?
 
   userId Int
   user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, programma])
+}
+
+// Messaggio che l'amministratore manda a chi aspetta un programma (es. "Il programma Principiante è pronto!").
+// Lo vede nell'app chi ha toccato "Avvisami" su quel programma.
+model AnnuncioProgramma {
+  id        Int      @id @default(autoincrement())
+  programma String
+  messaggio String
+  creatoIl  DateTime @default(now())
+
+  @@index([programma, creatoIl])
 }
 
 // Diario alimentare: una pagina per giorno, la scrive il cliente. Il trainer la legge e può

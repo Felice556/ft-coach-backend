@@ -132,6 +132,8 @@ export const INGLESE: Record<string, string> = {
 
   // Programmi in arrivo
   'Programma non trovato': 'Programme not found',
+  'Scrivi il messaggio': 'Write the message',
+  'Il messaggio può avere al massimo 300 caratteri': 'The message can be at most 300 characters',
 
   // Generici
   'Identificativo non valido': 'Invalid identifier',
