@@ -1,4 +1,4 @@
-// Clienti che si allenano da soli: 3 schede gratis, poi Liftio Pro.
+// Clienti che si allenano da soli: creano le loro schede (le prime 3 gratis; il "Pro" per ora è solo un avviso).
 // Possono collegarsi a un trainer (le loro schede vanno in pausa) e lasciarlo (tornano attive).
 // Il trainer vede i dati solo da quando il cliente è suo; NIENTE viene mai cancellato.
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -29,20 +29,23 @@ describe('Iscrizione e schede personali', () => {
     expect(me.body).toMatchObject({ ruolo: 'CLIENTE', trainer: null, schedePersonali: 0, limiteSchede: 3 });
   });
 
-  it('crea 3 schede gratis (anche archiviandone una non se ne crea una quarta)', async () => {
+  it('crea le sue schede: anche la quarta (il Pro per ora è solo un avviso), contate tutte, archiviate comprese', async () => {
     for (const n of ['A', 'B', 'C']) expect((await api().post('/schede').set(auth(tS)).send(mia(n))).status).toBe(201);
     const prima = (await api().get('/schede').set(auth(tS))).body;
     expect(prima.map((s: any) => s.nome)).toEqual(['A', 'B', 'C']);
     expect(prima.every((s: any) => s.personale && s.trainerId === null && s.clienteId === sara.id)).toBe(true);
 
-    const quarta = await api().post('/schede').set(auth(tS)).send(mia('D'));
-    expect(quarta.status).toBe(403);
-    expect(quarta.body.codice).toBe('LIMITE_PRO');
-
+    expect((await api().post('/schede').set(auth(tS)).send(mia('D'))).status).toBe(201);
     expect((await api().post(`/schede/${prima[0].id}/archivia`).set(auth(tS))).status).toBe(204);
-    expect((await api().post('/schede').set(auth(tS)).send(mia('D'))).status).toBe(403);
     expect((await api().get('/schede?archiviate=1').set(auth(tS))).body.map((s: any) => s.nome)).toEqual(['A']);
-    expect((await api().get('/me').set(auth(tS))).body.schedePersonali).toBe(3);
+    expect((await api().get('/me').set(auth(tS))).body).toMatchObject({ schedePersonali: 4, limiteSchede: 3 });
+  });
+
+  it('tetto di sicurezza: al massimo 30 schede attive insieme', async () => {
+    await prisma.scheda.createMany({ data: Array.from({ length: 30 }, (_, i) => ({ nome: `S${i}`, clienteId: sara.id, personale: true })) });
+    const r = await api().post('/schede').set(auth(tS)).send(mia('Troppe'));
+    expect(r.status).toBe(400);
+    expect(r.body.errore).toBe('Hai già 30 schede attive: archiviane qualcuna per crearne altre');
   });
 
   it('modifica le sue schede, ma non quelle degli altri', async () => {

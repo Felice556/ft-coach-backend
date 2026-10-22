@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../prisma.js';
 import { autentica } from '../middleware/auth.js';
 import { Prisma } from '@prisma/client';
-import { clienteDelTrainer, eAutonomo, LIMITE_SCHEDE_GRATIS, schedeDelTrainer, schedeGestibili, schedePersonali } from '../proprieta.js';
+import { clienteDelTrainer, eAutonomo, MASSIMO_SCHEDE_PERSONALI, schedeDelTrainer, schedeGestibili, schedePersonali } from '../proprieta.js';
 import { leggiId, leggiIdFacoltativo, linkVideoSchema } from '../utils.js';
 
 const router = Router();
@@ -94,7 +94,8 @@ async function gestibiliORifiuta(req: any, res: any): Promise<Prisma.SchedaWhere
 
 // Crea una scheda:
 // - il TRAINER la prepara per un suo cliente;
-// - il CLIENTE che si allena da solo se la crea per sé (fino a 3 gratis: dalla quarta servirà Liftio Pro).
+// - il CLIENTE che si allena da solo se la crea per sé (per ora senza limiti: l'app avvisa soltanto
+//   che in futuro, dalla quarta in poi, servirà Liftio Pro).
 router.post('/schede', autentica, async (req, res) => {
   const risultato = schedaSchema.safeParse(req.body);
   if (!risultato.success) {
@@ -119,9 +120,9 @@ router.post('/schede', autentica, async (req, res) => {
       res.status(403).json({ errore: 'Le tue schede le prepara il tuo trainer' });
       return;
     }
-    // Contano tutte le schede create, anche quelle archiviate (altrimenti basterebbe archiviare).
-    if ((await prisma.scheda.count({ where: schedePersonali(userId) })) >= LIMITE_SCHEDE_GRATIS) {
-      res.status(403).json({ errore: 'Hai già creato 3 schede gratis: per crearne altre servirà Liftio Pro', codice: 'LIMITE_PRO' });
+    // Solo un tetto di sicurezza sulle schede attive (non è il limite "Pro", che per ora è solo un avviso).
+    if ((await prisma.scheda.count({ where: { ...schedePersonali(userId), archiviataIl: null } })) >= MASSIMO_SCHEDE_PERSONALI) {
+      res.status(400).json({ errore: 'Hai già 30 schede attive: archiviane qualcuna per crearne altre' });
       return;
     }
     autore = { clienteId: userId, trainerId: null, personale: true };

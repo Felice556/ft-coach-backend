@@ -125,7 +125,7 @@ export const INGLESE: Record<string, string> = {
 
   // Allenarsi da soli e collegarsi a un trainer
   'Le tue schede le prepara il tuo trainer': 'Your programmes are prepared by your trainer',
-  'Hai già creato 3 schede gratis: per crearne altre servirà Liftio Pro': 'You’ve already created 3 free programmes: you’ll need Liftio Pro to create more',
+  'Hai già 30 schede attive: archiviane qualcuna per crearne altre': 'You already have 30 active programmes: archive some to create more',
   'Scrivi il codice invito': 'Enter the invite code',
   'Sei già seguito da questo trainer': 'This trainer already coaches you',
   'Ti alleni già da solo': 'You already train on your own',

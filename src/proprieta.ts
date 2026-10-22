@@ -3,8 +3,12 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from './prisma.js';
 
-// Schede gratis per chi si allena da solo (dalla quarta in poi servirà Liftio Pro).
+// Schede gratis per chi si allena da solo. Per ora NON è un blocco: l'app avvisa soltanto che,
+// in futuro, dalla quarta in poi servirà Liftio Pro.
 export const LIMITE_SCHEDE_GRATIS = 3;
+// Tetto di sicurezza (non commerciale): schede attive che una persona può avere insieme,
+// così un errore o uno script non riempie il database.
+export const MASSIMO_SCHEDE_PERSONALI = 30;
 
 // Il cliente con questo id, solo se è un CLIENTE seguito da questo trainer (altrimenti null).
 export function clienteDelTrainer(trainerId: number, clienteId: number) {
