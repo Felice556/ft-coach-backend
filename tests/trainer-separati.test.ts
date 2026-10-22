@@ -130,11 +130,12 @@ describe('Ogni trainer vede solo i propri clienti', () => {
     expect(f.body.map((c: any) => c.nome)).not.toContain('Luca');
   });
 
-  it('un cliente registrato senza invito (inviti facoltativi) va all’amministratore', async () => {
+  it('un cliente registrato senza invito si allena da solo: non finisce a nessun trainer', async () => {
     expect((await registra({ nome: 'Sara', email: 'sara@test.com' })).status).toBe(201);
     const sara = await prisma.user.findUnique({ where: { email: 'sara@test.com' } });
-    expect(sara?.trainerId).toBe(ids.trainer.id);
+    expect(sara?.trainerId).toBeNull();
     expect(sara?.ruolo).toBe('CLIENTE');
+    expect((await api().get('/clienti').set(auth(tF))).body.map((c: any) => c.nome)).not.toContain('Sara');
   });
 });
 
@@ -218,8 +219,9 @@ describe('Panoramica trainer per l’amministratore', () => {
     expect(r.status).toBe(200);
     const felice = r.body.trainer.find((t: any) => t.email === 'felice@test.com');
     const marta = r.body.trainer.find((t: any) => t.email === 'marta@test.com');
-    // Felice: Alessio, Giulia e Sara (registrata senza invito); Alessio si è allenato oggi
-    expect(felice).toMatchObject({ admin: true, clienti: 3, clientiAttivi: 1, schedeAttive: 1, allenamenti30: 1 });
+    // Felice: Alessio e Giulia (Sara, registrata senza invito, si allena da solo); Alessio si è allenato oggi
+    expect(r.body.totali.autonomi).toBe(1);
+    expect(felice).toMatchObject({ admin: true, clienti: 2, clientiAttivi: 1, schedeAttive: 1, allenamenti30: 1 });
     expect(felice.ultimoAllenamento).not.toBeNull();
     // Marta: Paolo, Luca e Vero (registrati con i suoi inviti); nessun allenamento
     expect(marta).toMatchObject({ admin: false, clienti: 3, clientiAttivi: 0, schedeAttive: 1, allenamenti30: 0, ultimoAllenamento: null });

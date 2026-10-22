@@ -123,6 +123,13 @@ export const INGLESE: Record<string, string> = {
   'Il commento lo scrive il trainer': 'The comment is written by the trainer',
   'Il cliente non ha compilato il diario di quel giorno': 'The client hasn’t filled in the diary for that day',
 
+  // Allenarsi da soli e collegarsi a un trainer
+  'Le tue schede le prepara il tuo trainer': 'Your programmes are prepared by your trainer',
+  'Hai già creato 3 schede gratis: per crearne altre servirà Liftio Pro': 'You’ve already created 3 free programmes: you’ll need Liftio Pro to create more',
+  'Scrivi il codice invito': 'Enter the invite code',
+  'Sei già seguito da questo trainer': 'This trainer already coaches you',
+  'Ti alleni già da solo': 'You already train on your own',
+
   // Generici
   'Identificativo non valido': 'Invalid identifier',
   'Dati della richiesta non validi': 'Invalid request data',

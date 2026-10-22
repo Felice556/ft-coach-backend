@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
 import { autentica } from '../middleware/auth.js';
-import { clienteDelTrainer } from '../proprieta.js';
+import { clienteDelTrainer, eAutonomo, visibileDal } from '../proprieta.js';
 import { leggiId, leggiIdFacoltativo } from '../utils.js';
 
 const router = Router();
@@ -10,11 +10,19 @@ const router = Router();
 // Misure del corpo:
 // - PESO (kg): lo scrive il CLIENTE, per sé.
 // - MASSA_GRASSA (%): la scrive il TRAINER, per un cliente.
-// Entrambi possono VEDERE tutte e due (il cliente solo le proprie).
+// Entrambi possono VEDERE tutte e due (il cliente solo le proprie; il trainer solo da quando
+// il cliente è collegato a lui). Chi si allena da solo inserisce anche la propria massa grassa.
 // Una misura per tipo al giorno: se si reinserisce lo stesso giorno, il valore viene corretto.
 
 type Tipo = 'PESO' | 'MASSA_GRASSA';
 const CHI_PUO_SCRIVERE: Record<Tipo, 'CLIENTE' | 'TRAINER'> = { PESO: 'CLIENTE', MASSA_GRASSA: 'TRAINER' };
+
+// Può scrivere/cancellare questo tipo di misura? La massa grassa la scrive il trainer,
+// oppure il cliente stesso se si allena da solo (non c'è nessun trainer a farlo per lui).
+async function puoScrivere(req: any, tipo: Tipo): Promise<boolean> {
+  if (CHI_PUO_SCRIVERE[tipo] === req.ruolo) return true;
+  return tipo === 'MASSA_GRASSA' && req.ruolo === 'CLIENTE' && (await eAutonomo(req.userId));
+}
 
 // Limiti realistici per scartare errori di battitura (es. 725 invece di 72,5).
 const LIMITI: Record<Tipo, { min: number; max: number; nome: string }> = {
@@ -65,8 +73,9 @@ router.get('/misure', autentica, async (req, res) => {
   if (richiesto === null) return; // id non valido: risposta 400 già inviata
   const clienteId = await clienteDellaRichiesta(req, res, richiesto);
   if (clienteId === null) return;
+  const dal = (req as any).ruolo === 'TRAINER' ? await visibileDal(clienteId) : null;
   const misure = await prisma.misuraCorporea.findMany({
-    where: { clienteId },
+    where: { clienteId, ...(dal ? { data: { gte: dal } } : {}) },
     orderBy: [{ data: 'asc' }, { id: 'asc' }],
     select: campi,
   });
@@ -82,9 +91,8 @@ router.put('/misure', autentica, async (req, res) => {
   }
   const { tipo, data } = risultato.data;
   const valore = Math.round(risultato.data.valore * 10) / 10; // un decimale basta
-  const ruolo = (req as any).ruolo as 'CLIENTE' | 'TRAINER';
 
-  if (CHI_PUO_SCRIVERE[tipo] !== ruolo) {
+  if (!(await puoScrivere(req, tipo))) {
     res.status(403).json({
       errore: tipo === 'PESO' ? 'Il peso corporeo lo inserisce il cliente' : 'La massa grassa la inserisce il trainer',
     });
@@ -121,7 +129,9 @@ router.delete('/misure/:id', autentica, async (req, res) => {
   });
   // Il cliente cancella solo le proprie; il trainer solo quelle dei suoi clienti.
   const suo = ruolo === 'TRAINER' ? misura?.cliente.trainerId === utenteId : misura?.clienteId === utenteId;
-  const puo = misura && CHI_PUO_SCRIVERE[misura.tipo] === ruolo && suo;
+  // Il trainer non tocca le misure di prima del collegamento (non le vede nemmeno).
+  const dal = ruolo === 'TRAINER' && misura ? await visibileDal(misura.clienteId) : null;
+  const puo = misura && suo && !(dal && misura.data < dal) && (await puoScrivere(req, misura.tipo));
   if (!misura || !puo) {
     res.status(404).json({ errore: 'Misura non trovata' });
     return;

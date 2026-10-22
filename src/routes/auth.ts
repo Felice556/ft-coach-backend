@@ -4,9 +4,9 @@ import { z } from 'zod';
 import { prisma } from '../prisma.js';
 import { autentica, richiedeRuolo, creaToken, motivoSospensione } from '../middleware/auth.js';
 import { leggiId } from '../utils.js';
-import { limiteCambioPassword, limiteLoginPerEmail, limiteLoginPerIp, limiteRegistrazione } from '../limiti.js';
+import { limiteCambioPassword, limiteCollegamento, limiteLoginPerEmail, limiteLoginPerIp, limiteRegistrazione } from '../limiti.js';
 import { normalizzaCodice } from './inviti.js';
-import { clienteDelTrainer } from '../proprieta.js';
+import { clienteDelTrainer, LIMITE_SCHEDE_GRATIS, schedePersonali } from '../proprieta.js';
 
 const router = Router();
 
@@ -28,12 +28,10 @@ const registerSchema = z.object({
   fasciaClienti: z.enum(FASCE_CLIENTI).optional(),
 });
 
-// Con INVITI_OBBLIGATORI=1 (variabile su Render) un cliente può registrarsi solo con un invito.
-const invitiObbligatori = () => process.env.INVITI_OBBLIGATORI === '1';
-
-// Serve alla schermata di registrazione: sapere se il campo "Codice invito" è obbligatorio.
+// Serve alla schermata di registrazione (versioni vecchie dell'app): il codice invito
+// non è più obbligatorio, perché senza codice ci si iscrive per allenarsi da soli.
 router.get('/registrazione/info', (_req, res) => {
-  res.json({ invitoObbligatorio: invitiObbligatori() });
+  res.json({ invitoObbligatorio: false });
 });
 
 router.post('/register', limiteRegistrazione, async (req, res) => {
@@ -48,7 +46,8 @@ router.post('/register', limiteRegistrazione, async (req, res) => {
   // Un TRAINER con un invito trainer (lo crea solo l'amministratore) è subito attivo.
   // Un TRAINER SENZA invito può registrarsi, ma resta "in attesa" finché l'amministratore non lo
   // approva (può presentarsi in due righe, se vuole). Fino ad allora non può fare niente.
-  // Un CLIENTE si registra con l'invito del suo trainer (con INVITI_OBBLIGATORI=1 è obbligatorio).
+  // Un CLIENTE si registra con l'invito del suo trainer, oppure SENZA invito per allenarsi da solo
+  // (si crea le sue schede; potrà collegarsi a un trainer più avanti, con un suo codice).
   const inAttesa = ruolo === 'TRAINER' && !codiceInvito;
   const presentazione = risultato.data.presentazione || null; // facoltativa
   const fasciaClienti = risultato.data.fasciaClienti ?? null;
@@ -64,11 +63,6 @@ router.post('/register', limiteRegistrazione, async (req, res) => {
     return;
   }
 
-  if (ruolo === 'CLIENTE' && invitiObbligatori() && !codiceInvito) {
-    res.status(400).json({ errore: 'Serve il codice invito che ti ha dato il tuo trainer' });
-    return;
-  }
-
   const passwordHash = await bcrypt.hash(password, 10);
   const erroreInvito = 'Codice invito non valido, scaduto o già usato';
 
@@ -80,7 +74,7 @@ router.post('/register', limiteRegistrazione, async (req, res) => {
     utente = await prisma.$transaction(async (tx) => {
       // A quale trainer appartiene il nuovo cliente:
       // - con un invito: al trainer che l'ha creato;
-      // - senza invito (solo se gli inviti non sono obbligatori): all'amministratore.
+      // - senza invito: a nessuno, si allena da solo.
       // Un nuovo trainer non appartiene a nessuno. "admin" non si imposta MAI qui.
       let trainerId: number | null = null;
       if (codiceInvito) {
@@ -89,9 +83,6 @@ router.post('/register', limiteRegistrazione, async (req, res) => {
         // E non vale se chi l'ha creato è stato sospeso.
         if (!invito || invito.ruolo !== ruolo || invito.trainer.sospeso) throw new Error('INVITO_NON_VALIDO');
         if (ruolo === 'CLIENTE') trainerId = invito.trainerId;
-      } else if (ruolo === 'CLIENTE') {
-        const amministratore = await tx.user.findFirst({ where: { admin: true }, select: { id: true } });
-        trainerId = amministratore?.id ?? null;
       }
 
       const nuovo = await tx.user.create({
@@ -313,18 +304,101 @@ for (const [azione, sospeso] of [['sospendi', true], ['riattiva', false]] as con
   });
 }
 
-// Chi sono: serve al frontend per sapere, ad esempio, se mostrare la sezione amministratore.
-router.get('/me', autentica, async (req, res) => {
+// Chi sono: serve al frontend per sapere, ad esempio, se mostrare la sezione amministratore,
+// o (per i clienti) chi è il loro trainer e quante schede gratis hanno usato se si allenano da soli.
+async function datiMe(id: number) {
   const utente = await prisma.user.findUnique({
-    where: { id: (req as any).userId as number },
-    select: { id: true, nome: true, ruolo: true, admin: true, approvato: true }, // mai la password
+    where: { id },
+    select: { id: true, nome: true, ruolo: true, admin: true, approvato: true, trainer: { select: { nome: true } } }, // mai la password
   });
+  if (!utente) return null;
+  const { approvato, trainer, ...resto } = utente;
+  const base = { ...resto, inAttesa: utente.ruolo === 'TRAINER' && !approvato };
+  if (utente.ruolo !== 'CLIENTE') return base;
+  return {
+    ...base,
+    trainer: trainer ? { nome: trainer.nome } : null, // null = si allena da solo
+    schedePersonali: await prisma.scheda.count({ where: schedePersonali(id) }), // anche archiviate o in pausa
+    limiteSchede: LIMITE_SCHEDE_GRATIS,
+  };
+}
+
+router.get('/me', autentica, async (req, res) => {
+  const dati = await datiMe((req as any).userId as number);
+  if (!dati) {
+    res.status(404).json({ errore: 'Utente non trovato' });
+    return;
+  }
+  res.json(dati);
+});
+
+// ---------- Il cliente sceglie se allenarsi con un trainer o da solo ----------
+
+// Collegarsi a un trainer con il codice invito che gli ha dato (anche per cambiare trainer).
+// Le schede create da solo restano salvate, "in pausa": tornano se un giorno lascia il trainer.
+// Il trainer vedrà misure, cardio, passi e diario SOLO da oggi in poi (collegatoIl).
+router.post('/me/trainer', limiteCollegamento, autentica, richiedeRuolo('CLIENTE'), async (req, res) => {
+  const risultato = z.object({ codiceInvito: z.string().trim().min(1, 'Scrivi il codice invito').max(20) }).safeParse(req.body);
+  if (!risultato.success) {
+    res.status(400).json({ errori: risultato.error.issues });
+    return;
+  }
+  const codice = normalizzaCodice(risultato.data.codiceInvito);
+  const id = (req as any).userId as number;
+  try {
+    await prisma.$transaction(async (tx) => {
+      const io = await tx.user.findUnique({ where: { id }, select: { trainerId: true } });
+      const invito = await tx.invito.findUnique({ where: { codice }, include: { trainer: { select: { sospeso: true, approvato: true } } } });
+      if (!invito || invito.ruolo !== 'CLIENTE' || invito.trainer.sospeso || !invito.trainer.approvato) throw new Error('INVITO_NON_VALIDO');
+      if (invito.trainerId === io?.trainerId) throw new Error('GIA_COLLEGATO');
+      // Come alla registrazione: l'invito vale una volta sola, anche con due richieste nello stesso istante.
+      const { count } = await tx.invito.updateMany({
+        where: { codice, ruolo: 'CLIENTE', usatoIl: null, annullatoIl: null, scadeIl: { gt: new Date() } },
+        data: { usatoIl: new Date(), usatoDaId: id },
+      });
+      if (count !== 1) throw new Error('INVITO_NON_VALIDO');
+      await tx.user.update({ where: { id }, data: { trainerId: invito.trainerId, collegatoIl: new Date() } });
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message === 'INVITO_NON_VALIDO') {
+      res.status(400).json({ errore: 'Codice invito non valido, scaduto o già usato' });
+      return;
+    }
+    if (err instanceof Error && err.message === 'GIA_COLLEGATO') {
+      res.status(400).json({ errore: 'Sei già seguito da questo trainer' });
+      return;
+    }
+    throw err;
+  }
+  res.json(await datiMe(id));
+});
+
+// Smettere di allenarsi con il trainer: il cliente torna ad allenarsi da solo.
+// Non si cancella NIENTE: le schede del trainer (con tutto lo storico) restano salvate,
+// le schede personali tornano attive, e il trainer non vede più i suoi dati.
+// Serve la password: chi trova un telefono sbloccato non può staccare il cliente dal trainer.
+router.delete('/me/trainer', limiteCambioPassword, autentica, richiedeRuolo('CLIENTE'), async (req, res) => {
+  const risultato = z.object({ password: z.string().min(1, 'Scrivi la tua password').max(72) }).safeParse(req.body);
+  if (!risultato.success) {
+    res.status(400).json({ errori: risultato.error.issues });
+    return;
+  }
+  const id = (req as any).userId as number;
+  const utente = await prisma.user.findUnique({ where: { id } });
   if (!utente) {
     res.status(404).json({ errore: 'Utente non trovato' });
     return;
   }
-  const { approvato, ...resto } = utente;
-  res.json({ ...resto, inAttesa: utente.ruolo === 'TRAINER' && !approvato });
+  if (!(await bcrypt.compare(risultato.data.password, utente.password))) {
+    res.status(400).json({ errore: 'La password non è corretta' });
+    return;
+  }
+  if (!utente.trainerId) {
+    res.status(400).json({ errore: 'Ti alleni già da solo' });
+    return;
+  }
+  await prisma.user.update({ where: { id }, data: { trainerId: null, collegatoIl: null } });
+  res.json(await datiMe(id));
 });
 
 // ---------- Eliminare il proprio account ----------
@@ -392,6 +466,10 @@ router.delete('/me', limiteCambioPassword, autentica, async (req, res) => {
       // Trainer senza clienti: i suoi inviti (non servono più a nessuno). Libreria esercizi
       // e note salvate si cancellano da sole insieme a lui (onDelete: Cascade).
       await tx.invito.deleteMany({ where: { trainerId: id } });
+      // Clienti che lo hanno lasciato: le schede che aveva preparato restano a loro con lo storico
+      // (il database toglie solo il collegamento al trainer), e la massa grassa che aveva inserito
+      // per loro resta, segnata come inserita dal cliente stesso.
+      await tx.$executeRaw`UPDATE "MisuraCorporea" SET "inseritaDaId" = "clienteId" WHERE "inseritaDaId" = ${id}`;
     }
     // L'invito con cui si era registrato resta nello storico di chi l'ha creato, senza più il collegamento.
     await tx.invito.updateMany({ where: { usatoDaId: id }, data: { usatoDaId: null } });

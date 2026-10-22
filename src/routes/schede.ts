@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
-import { autentica, richiedeRuolo } from '../middleware/auth.js';
-import { clienteDelTrainer, eserciziDelTrainer, schedeDelTrainer } from '../proprieta.js';
+import { autentica } from '../middleware/auth.js';
+import { Prisma } from '@prisma/client';
+import { clienteDelTrainer, eAutonomo, LIMITE_SCHEDE_GRATIS, schedeDelTrainer, schedeGestibili, schedePersonali } from '../proprieta.js';
 import { leggiId, leggiIdFacoltativo, linkVideoSchema } from '../utils.js';
 
 const router = Router();
@@ -73,7 +74,7 @@ function datiSerieExtra(extra: SerieExtraInput[]) {
 
 const schedaSchema = z.object({
   nome: z.string().trim().min(1, 'Il nome della scheda non può essere vuoto').max(100),
-  clienteId: z.number().int(),
+  clienteId: z.number().int().optional(), // il trainer lo indica sempre; chi si allena da solo no (è sé stesso)
   esercizi: z.array(esercizioSchema).min(1, 'Serve almeno un esercizio'),
 });
 
@@ -84,26 +85,52 @@ async function eUnSuoCliente(trainerId: number, clienteId: number) {
 
 const trainerDi = (req: any) => req.userId as number;
 
-// Solo il TRAINER crea schede, e le assegna a un cliente specifico.
-router.post('/schede', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
+// Schede che chi fa la richiesta può gestire (vedi proprieta.ts). Se nessuna, risponde 403.
+async function gestibiliORifiuta(req: any, res: any): Promise<Prisma.SchedaWhereInput | null> {
+  const filtro = await schedeGestibili(req);
+  if (!filtro) res.status(403).json({ errore: 'Le tue schede le prepara il tuo trainer' });
+  return filtro;
+}
+
+// Crea una scheda:
+// - il TRAINER la prepara per un suo cliente;
+// - il CLIENTE che si allena da solo se la crea per sé (fino a 3 gratis: dalla quarta servirà Liftio Pro).
+router.post('/schede', autentica, async (req, res) => {
   const risultato = schedaSchema.safeParse(req.body);
   if (!risultato.success) {
     res.status(400).json({ errori: risultato.error.issues });
     return;
   }
-  const { nome, clienteId } = risultato.data;
+  const { nome } = risultato.data;
   const esercizi = senzaCollegamentoFinale(risultato.data.esercizi);
+  const userId = trainerDi(req);
 
-  // Verifica che il clienteId passato sia davvero un CLIENTE di questo trainer.
-  if (!(await eUnSuoCliente(trainerDi(req), clienteId))) {
-    res.status(400).json({ errore: 'Cliente non valido: controlla l’ID del cliente' });
-    return;
+  let autore: { clienteId: number; trainerId: number | null; personale: boolean };
+  if ((req as any).ruolo === 'TRAINER') {
+    // Verifica che il clienteId passato sia davvero un CLIENTE di questo trainer.
+    const clienteId = risultato.data.clienteId;
+    if (clienteId === undefined || !(await eUnSuoCliente(userId, clienteId))) {
+      res.status(400).json({ errore: 'Cliente non valido: controlla l’ID del cliente' });
+      return;
+    }
+    autore = { clienteId, trainerId: userId, personale: false };
+  } else {
+    if (!(await eAutonomo(userId))) {
+      res.status(403).json({ errore: 'Le tue schede le prepara il tuo trainer' });
+      return;
+    }
+    // Contano tutte le schede create, anche quelle archiviate (altrimenti basterebbe archiviare).
+    if ((await prisma.scheda.count({ where: schedePersonali(userId) })) >= LIMITE_SCHEDE_GRATIS) {
+      res.status(403).json({ errore: 'Hai già creato 3 schede gratis: per crearne altre servirà Liftio Pro', codice: 'LIMITE_PRO' });
+      return;
+    }
+    autore = { clienteId: userId, trainerId: null, personale: true };
   }
 
   const scheda = await prisma.scheda.create({
     data: {
       nome,
-      clienteId,
+      ...autore,
       // Creazione annidata su tre livelli: scheda → esercizi → serie extra, in un colpo solo.
       esercizi: {
         create: esercizi.map(({ serieExtra, ...es }) => ({
@@ -119,25 +146,36 @@ router.post('/schede', autentica, richiedeRuolo('TRAINER'), async (req, res) => 
   res.status(201).json(scheda);
 });
 
-// Elenco schede ATTIVE. Il CLIENTE vede solo le proprie; il TRAINER quelle dei SUOI clienti
-// (o di uno solo con ?clienteId=3). Con ?archiviate=1 il trainer vede l'archivio.
+// Elenco schede ATTIVE. Il CLIENTE vede le proprie: quelle del suo trainer attuale oppure,
+// se si allena da solo, quelle che si è creato (le altre restano salvate, "in pausa").
+// Il TRAINER vede quelle che ha preparato per i SUOI clienti (o per uno solo con ?clienteId=3).
+// Con ?archiviate=1 si vede l'archivio (trainer e chi si allena da solo).
 router.get('/schede', autentica, async (req, res) => {
   const userId = (req as any).userId as number;
   const ruolo = (req as any).ruolo as string;
+  const archiviate = req.query.archiviate === '1';
 
   if (ruolo === 'CLIENTE') {
+    const io = await prisma.user.findUnique({ where: { id: userId }, select: { trainerId: true } });
+    if (archiviate && io?.trainerId) {
+      res.json([]); // l'archivio delle schede del trainer lo gestisce il trainer
+      return;
+    }
     const schede = await prisma.scheda.findMany({
-      where: { clienteId: userId, archiviataIl: null },
-      orderBy: { id: 'asc' },
+      where: {
+        clienteId: userId,
+        ...(io?.trainerId ? { trainerId: io.trainerId, personale: false } : { personale: true }),
+        archiviataIl: archiviate ? { not: null } : null,
+      },
+      orderBy: archiviate ? { archiviataIl: 'desc' } : { id: 'asc' },
       include: conEsercizi,
     });
-    res.json(schede);
+    res.json(archiviate ? await Promise.all(schede.map(async (s) => ({ ...s, haStorico: await haStorico(s.id) }))) : schede);
     return;
   }
 
   const clienteIdQuery = leggiIdFacoltativo(req.query.clienteId, res);
   if (clienteIdQuery === null) return;
-  const archiviate = req.query.archiviate === '1';
 
   const schede = await prisma.scheda.findMany({
     where: {
@@ -186,8 +224,8 @@ const modificaSchedaSchema = z.object({
   esercizi: z.array(esercizioModificaSchema).min(1, 'Serve almeno un esercizio').optional(),
 });
 
-// Modifica completa di una scheda: nome, cliente assegnato ed elenco esercizi.
-router.put('/schede/:id', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
+// Modifica completa di una scheda: nome, cliente assegnato (solo il trainer) ed elenco esercizi.
+router.put('/schede/:id', autentica, async (req, res) => {
   const id = leggiId(req.params.id, res);
   if (id === null) return;
   const risultato = modificaSchedaSchema.safeParse(req.body);
@@ -195,11 +233,15 @@ router.put('/schede/:id', autentica, richiedeRuolo('TRAINER'), async (req, res) 
     res.status(400).json({ errori: risultato.error.issues });
     return;
   }
-  const { nome, clienteId } = risultato.data;
+  const { nome } = risultato.data;
+  // Solo il trainer sposta una scheda a un altro cliente; chi si allena da solo non ha nessuno a cui darla.
+  const clienteId = (req as any).ruolo === 'TRAINER' ? risultato.data.clienteId : undefined;
   const esercizi = risultato.data.esercizi && senzaCollegamentoFinale(risultato.data.esercizi);
+  const gestibili = await gestibiliORifiuta(req, res);
+  if (!gestibili) return;
 
   const esistente = await prisma.scheda.findFirst({
-    where: { id, ...schedeDelTrainer(trainerDi(req)) },
+    where: { id, ...gestibili },
     include: { esercizi: { where: { archiviatoIl: null } } },
   });
   if (!esistente) {
@@ -289,11 +331,13 @@ router.put('/schede/:id', autentica, richiedeRuolo('TRAINER'), async (req, res) 
 
 // "Archivia": la scheda sparisce dalle viste (anche da quella del cliente),
 // ma resta nel database con esercizi, serie registrate e allenamenti conclusi.
-router.post('/schede/:id/archivia', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
+router.post('/schede/:id/archivia', autentica, async (req, res) => {
   const id = leggiId(req.params.id, res);
   if (id === null) return;
+  const gestibili = await gestibiliORifiuta(req, res);
+  if (!gestibili) return;
   const { count } = await prisma.scheda.updateMany({
-    where: { id, archiviataIl: null, ...schedeDelTrainer(trainerDi(req)) },
+    where: { id, archiviataIl: null, ...gestibili },
     data: { archiviataIl: new Date() },
   });
   if (count === 0) {
@@ -303,11 +347,13 @@ router.post('/schede/:id/archivia', autentica, richiedeRuolo('TRAINER'), async (
   res.status(204).send();
 });
 
-router.post('/schede/:id/ripristina', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
+router.post('/schede/:id/ripristina', autentica, async (req, res) => {
   const id = leggiId(req.params.id, res);
   if (id === null) return;
+  const gestibili = await gestibiliORifiuta(req, res);
+  if (!gestibili) return;
   const { count } = await prisma.scheda.updateMany({
-    where: { id, archiviataIl: { not: null }, ...schedeDelTrainer(trainerDi(req)) },
+    where: { id, archiviataIl: { not: null }, ...gestibili },
     data: { archiviataIl: null },
   });
   if (count === 0) {
@@ -322,10 +368,12 @@ router.post('/schede/:id/ripristina', autentica, richiedeRuolo('TRAINER'), async
 // serie, la scheda non si può eliminare: resta in archivio per sempre.
 // Anche se questo controllo avesse un bug, il database stesso rifiuterebbe
 // (onDelete: Restrict su serie e allenamenti conclusi).
-router.delete('/schede/:id', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
+router.delete('/schede/:id', autentica, async (req, res) => {
   const id = leggiId(req.params.id, res);
   if (id === null) return;
-  const scheda = await prisma.scheda.findFirst({ where: { id, ...schedeDelTrainer(trainerDi(req)) } });
+  const gestibili = await gestibiliORifiuta(req, res);
+  if (!gestibili) return;
+  const scheda = await prisma.scheda.findFirst({ where: { id, ...gestibili } });
   if (!scheda) {
     res.status(404).json({ errore: 'Scheda non trovata' });
     return;
@@ -353,9 +401,11 @@ const modificaEsercizioSchema = esercizioSchema.partial().extend({
 });
 
 // Modifica un singolo esercizio (es. solo il recupero, senza toccare il resto della scheda).
-router.put('/esercizi/:id', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
+router.put('/esercizi/:id', autentica, async (req, res) => {
   const id = leggiId(req.params.id, res);
   if (id === null) return;
+  const gestibili = await gestibiliORifiuta(req, res);
+  if (!gestibili) return;
   const risultato = modificaEsercizioSchema.safeParse(req.body);
   if (!risultato.success) {
     res.status(400).json({ errori: risultato.error.issues });
@@ -363,7 +413,7 @@ router.put('/esercizi/:id', autentica, richiedeRuolo('TRAINER'), async (req, res
   }
   const { serieExtra, ...campi } = risultato.data;
 
-  const esistente = await prisma.esercizio.findFirst({ where: { id, archiviatoIl: null, ...eserciziDelTrainer(trainerDi(req)) } });
+  const esistente = await prisma.esercizio.findFirst({ where: { id, archiviatoIl: null, scheda: gestibili } });
   if (!esistente) {
     res.status(404).json({ errore: 'Esercizio non trovato' });
     return;
@@ -387,11 +437,13 @@ router.put('/esercizi/:id', autentica, richiedeRuolo('TRAINER'), async (req, res
 // Storico completo di una scheda per il trainer: tutti gli esercizi (anche quelli tolti,
 // se hanno serie registrate) con tutte le serie del cliente, dalla più vecchia.
 // Serve per i grafici "per esercizio" e per il dettaglio "per allenamento" (raggruppando per giorno).
-router.get('/schede/:id/storico', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
+router.get('/schede/:id/storico', autentica, async (req, res) => {
   const id = leggiId(req.params.id, res);
   if (id === null) return;
+  const gestibili = await gestibiliORifiuta(req, res);
+  if (!gestibili) return;
   const scheda = await prisma.scheda.findFirst({
-    where: { id, ...schedeDelTrainer(trainerDi(req)) },
+    where: { id, ...gestibili },
     select: { id: true, nome: true, clienteId: true, archiviataIl: true, creataIl: true, cliente: { select: { nome: true } } },
   });
   if (!scheda) {
@@ -420,23 +472,27 @@ router.get('/schede/:id/storico', autentica, richiedeRuolo('TRAINER'), async (re
 
 // Esercizi tolti da una scheda (archiviati): il trainer li vede nella modifica
 // della scheda e può rimetterli, con tutto lo storico del cliente ancora collegato.
-router.get('/schede/:id/esercizi-archiviati', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
+router.get('/schede/:id/esercizi-archiviati', autentica, async (req, res) => {
   const id = leggiId(req.params.id, res);
   if (id === null) return;
+  const gestibili = await gestibiliORifiuta(req, res);
+  if (!gestibili) return;
   const esercizi = await prisma.esercizio.findMany({
-    where: { schedaId: id, archiviatoIl: { not: null }, ...eserciziDelTrainer(trainerDi(req)) },
+    where: { schedaId: id, archiviatoIl: { not: null }, scheda: gestibili },
     orderBy: { archiviatoIl: 'desc' },
     include: { serieExtra: { orderBy: { ordine: 'asc' } }, _count: { select: { registri: true } } },
   });
   res.json(esercizi);
 });
 
-router.post('/esercizi/:id/ripristina', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
+router.post('/esercizi/:id/ripristina', autentica, async (req, res) => {
   const id = leggiId(req.params.id, res);
   if (id === null) return;
+  const gestibili = await gestibiliORifiuta(req, res);
+  if (!gestibili) return;
   // Solo se la scheda è attiva: in una scheda archiviata si ripristina prima la scheda.
   const { count } = await prisma.esercizio.updateMany({
-    where: { id, archiviatoIl: { not: null }, scheda: { archiviataIl: null, ...schedeDelTrainer(trainerDi(req)) } },
+    where: { id, archiviatoIl: { not: null }, scheda: { archiviataIl: null, ...gestibili } },
     data: { archiviatoIl: null },
   });
   if (count === 0) {
@@ -447,11 +503,13 @@ router.post('/esercizi/:id/ripristina', autentica, richiedeRuolo('TRAINER'), asy
 });
 
 // "Elimina" un esercizio = archiviarlo: esce dalla scheda, lo storico resta.
-router.delete('/esercizi/:id', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
+router.delete('/esercizi/:id', autentica, async (req, res) => {
   const id = leggiId(req.params.id, res);
   if (id === null) return;
+  const gestibili = await gestibiliORifiuta(req, res);
+  if (!gestibili) return;
   const { count } = await prisma.esercizio.updateMany({
-    where: { id, archiviatoIl: null, ...eserciziDelTrainer(trainerDi(req)) },
+    where: { id, archiviatoIl: null, scheda: gestibili },
     data: { archiviatoIl: new Date() },
   });
   if (count === 0) {

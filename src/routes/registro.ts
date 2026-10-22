@@ -74,7 +74,8 @@ router.get('/registro/:esercizioId', autentica, async (req, res) => {
     res.status(403).json({ errore: 'Non puoi vedere lo storico di un altro cliente' });
     return;
   }
-  if (ruolo === 'TRAINER' && esercizio.scheda.cliente.trainerId !== clienteId) {
+  // Il trainer vede lo storico solo delle schede preparate da lui, per un cliente ancora suo.
+  if (ruolo === 'TRAINER' && (esercizio.scheda.cliente.trainerId !== clienteId || esercizio.scheda.trainerId !== clienteId)) {
     // 404 e non 403: un trainer non deve nemmeno scoprire che l'esercizio esiste.
     res.status(404).json({ errore: 'Esercizio non trovato' });
     return;

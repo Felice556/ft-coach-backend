@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
 import { autentica } from '../middleware/auth.js';
-import { clienteDelTrainer } from '../proprieta.js';
+import { clienteDelTrainer, piuRecente, visibileDal } from '../proprieta.js';
 import { leggiIdFacoltativo } from '../utils.js';
 
 const router = Router();
@@ -12,6 +12,8 @@ const router = Router();
 //   Serve il suo consenso apposito: sono abitudini che possono dire qualcosa sulla salute.
 // - Il TRAINER legge il diario dei SUOI clienti (solo se hanno dato il consenso) e può lasciare
 //   un commento a ogni giornata. Non è un piano alimentare: niente calorie, niente diete.
+//   Il trainer vede solo le giornate da quando il cliente è collegato a lui.
+// - Chi si allena da solo lo usa come diario personale (nessuno lo legge).
 // - Ritirando il consenso, il diario del cliente viene cancellato.
 
 const GIORNI_STORICO = 60;
@@ -99,8 +101,9 @@ router.get('/diario', autentica, async (req, res) => {
   const da = new Date();
   da.setUTCHours(0, 0, 0, 0);
   da.setUTCDate(da.getUTCDate() - GIORNI_STORICO);
+  const dal = (req as any).ruolo === 'TRAINER' ? await visibileDal(clienteId) : null;
   const giorni = consenso
-    ? await prisma.giornoDiario.findMany({ where: { clienteId, data: { gte: da } }, orderBy: { data: 'desc' }, select: campiGiorno })
+    ? await prisma.giornoDiario.findMany({ where: { clienteId, data: { gte: piuRecente(da, dal) } }, orderBy: { data: 'desc' }, select: campiGiorno })
     : [];
   res.json({ consenso, giorni });
 });
@@ -200,7 +203,8 @@ router.put('/diario/:data/commento', autentica, async (req, res) => {
   const clienteId = await clienteDelDiario(req, res, risultato.data.clienteId);
   if (clienteId === null) return;
   const cliente = await prisma.user.findUnique({ where: { id: clienteId }, select: { consensoDiarioIl: true } });
-  const giorno = cliente?.consensoDiarioIl
+  const dal = await visibileDal(clienteId);
+  const giorno = cliente?.consensoDiarioIl && !(dal && giornoDaTesto(data.data) < dal)
     ? await prisma.giornoDiario.findUnique({ where: { clienteId_data: { clienteId, data: giornoDaTesto(data.data) } }, select: { id: true } })
     : null;
   if (!giorno) {

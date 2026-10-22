@@ -73,14 +73,13 @@ describe('Inviti monouso', () => {
     expect((await api().post(`/inviti/${annullato.id}/annulla`).set(auth(tF))).status).toBe(404);
   });
 
-  it('con INVITI_OBBLIGATORI=1 un cliente senza codice non si registra', async () => {
-    expect((await api().get('/registrazione/info')).body.invitoObbligatorio).toBe(false);
+  it('senza codice ci si iscrive per allenarsi da soli (la vecchia variabile INVITI_OBBLIGATORI non conta più)', async () => {
     process.env.INVITI_OBBLIGATORI = '1';
-    expect((await api().get('/registrazione/info')).body.invitoObbligatorio).toBe(true);
+    expect((await api().get('/registrazione/info')).body.invitoObbligatorio).toBe(false);
 
     const senza = await registra({ nome: 'Senza', email: 'senza@test.com' });
-    expect(senza.status).toBe(400);
-    expect(senza.body.errore).toContain('codice invito');
+    expect(senza.status).toBe(201);
+    expect((await prisma.user.findUnique({ where: { email: 'senza@test.com' } }))?.trainerId).toBeNull();
 
     const inv = (await api().post('/inviti').set(auth(tF)).send({ nota: 'Sara' })).body;
     expect((await registra({ nome: 'Sara', email: 'sara@test.com', codiceInvito: inv.codice })).status).toBe(201);

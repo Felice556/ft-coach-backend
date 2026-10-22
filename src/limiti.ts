@@ -69,6 +69,18 @@ export const limiteCambioPassword = rateLimit({
   handler: risposta('Troppi tentativi. Riprova tra 15 minuti.'),
 });
 
+// Collegarsi a un trainer con un codice invito: 10 codici sbagliati in 15 minuti, poi stop
+// (i codici giusti non contano). Così nessuno può provare codici a caso all'infinito.
+export const limiteCollegamento = rateLimit({
+  windowMs: QUINDICI_MINUTI,
+  limit: 10,
+  keyGenerator: (req) => ip(req),
+  skipSuccessfulRequests: true,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  handler: risposta('Troppi tentativi. Riprova tra 15 minuti.'),
+});
+
 // Limite generale molto largo: un uso normale non ci arriva mai, ma ferma
 // uno script che bombarda il server di richieste.
 export const limiteGenerale = rateLimit({

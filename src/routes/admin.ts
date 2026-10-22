@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../prisma.js';
 import { autentica, richiedeAdmin, richiedeRuolo } from '../middleware/auth.js';
 import { leggiId } from '../utils.js';
+import { schedeDelTrainer } from '../proprieta.js';
 
 const router = Router();
 
@@ -21,18 +22,19 @@ router.get('/admin/trainer', autentica, richiedeAdmin, async (_req, res) => {
       email: true,
       admin: true,
       sospeso: true,
-      invitoUsato: { select: { usatoIl: true } }, // quando si è registrato (se con un invito trainer)
+      invitiUsati: { select: { usatoIl: true }, orderBy: { usatoIl: 'asc' }, take: 1 }, // quando si è registrato (se con un invito trainer)
       _count: { select: { clienti: true } },
     },
   });
 
   const righe = await Promise.all(
     trainer.map(async (t) => {
-      const deiSuoiClienti = { cliente: { trainerId: t.id } };
+      // Allenamenti fatti sulle schede di questo trainer, dai clienti che segue ancora.
+      const deiSuoiClienti = { cliente: { trainerId: t.id }, scheda: { trainerId: t.id } };
       const [clientiAttivi, schedeAttive, allenamenti30, ultimo] = await Promise.all([
         // clienti con almeno un allenamento concluso negli ultimi 30 giorni
         prisma.user.count({ where: { trainerId: t.id, sessioni: { some: { completataIl: { gte: da30giorni } } } } }),
-        prisma.scheda.count({ where: { ...deiSuoiClienti, archiviataIl: null } }),
+        prisma.scheda.count({ where: { ...schedeDelTrainer(t.id), archiviataIl: null } }),
         prisma.sessioneAllenamento.count({ where: { ...deiSuoiClienti, completataIl: { gte: da30giorni } } }),
         prisma.sessioneAllenamento.findFirst({
           where: deiSuoiClienti,
@@ -46,7 +48,7 @@ router.get('/admin/trainer', autentica, richiedeAdmin, async (_req, res) => {
         email: t.email,
         admin: t.admin,
         sospeso: t.sospeso,
-        registratoIl: t.invitoUsato?.usatoIl ?? null,
+        registratoIl: t.invitiUsati[0]?.usatoIl ?? null,
         clienti: t._count.clienti,
         clientiAttivi,
         schedeAttive,
@@ -56,8 +58,12 @@ router.get('/admin/trainer', autentica, richiedeAdmin, async (_req, res) => {
     }),
   );
 
+  // Chi si allena da solo (senza trainer): solo il numero, nessun dato personale.
+  const autonomi = await prisma.user.count({ where: { ruolo: 'CLIENTE', trainerId: null } });
+
   res.json({
     totali: {
+      autonomi,
       trainer: righe.length,
       clienti: righe.reduce((s, r) => s + r.clienti, 0),
       clientiAttivi: righe.reduce((s, r) => s + r.clientiAttivi, 0),

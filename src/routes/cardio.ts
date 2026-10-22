@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
 import { autentica } from '../middleware/auth.js';
-import { clienteDelTrainer } from '../proprieta.js';
+import { clienteDelTrainer, eAutonomo, piuRecente, visibileDal } from '../proprieta.js';
 import { leggiId, leggiIdFacoltativo } from '../utils.js';
 
 const router = Router();
@@ -11,6 +11,7 @@ const router = Router();
 // - il TRAINER decide il piano cardio del cliente (attività, minuti, volte a settimana)
 //   e l'obiettivo di passi al giorno;
 // - il CLIENTE segna il cardio che ha fatto e i passi di ogni giorno.
+// Chi si allena da solo (senza trainer) decide anche il proprio piano e l'obiettivo di passi.
 // Entrambi vedono tutto (il cliente solo i propri dati, il trainer solo quelli dei suoi clienti).
 
 const MAX_OBIETTIVI = 10; // attività nel piano di un cliente
@@ -53,7 +54,7 @@ const passiSchema = z.object({
 });
 
 const obiettivoPassiSchema = z.object({
-  clienteId: idSchema,
+  clienteId: idSchema.optional(), // chi si allena da solo non lo indica (è sé stesso)
   // null = nessun obiettivo
   passi: z.number().int().min(1000, 'Obiettivo tra 1.000 e 50.000 passi').max(50000, 'Obiettivo tra 1.000 e 50.000 passi').nullable(),
 });
@@ -62,11 +63,20 @@ const campiObiettivo = { id: true, attivita: true, minuti: true, volteSettimana:
 const campiSessione = { id: true, attivita: true, minuti: true, distanzaKm: true, nota: true, data: true, obiettivoId: true } as const;
 const campiPassi = { id: true, passi: true, data: true } as const;
 
-const soloTrainer = (req: any, res: any) => {
-  if (req.ruolo === 'TRAINER') return true;
-  res.status(403).json({ errore: 'Il piano cardio lo decide il trainer' });
-  return false;
-};
+// Di chi è il piano che si vuole cambiare: il trainer indica uno dei SUOI clienti;
+// chi si allena da solo cambia il proprio. Un cliente seguito da un trainer non può (lo decide il trainer).
+async function clienteDelPiano(req: any, res: any, richiesto: number | undefined): Promise<number | null> {
+  if (req.ruolo === 'CLIENTE') {
+    if (await eAutonomo(req.userId)) return req.userId as number;
+    res.status(403).json({ errore: 'Il piano cardio lo decide il trainer' });
+    return null;
+  }
+  if (!richiesto || !(await clienteDelTrainer(req.userId, richiesto))) {
+    res.status(404).json({ errore: 'Cliente non trovato' });
+    return null;
+  }
+  return richiesto;
+}
 const soloCliente = (req: any, res: any) => {
   if (req.ruolo === 'CLIENTE') return true;
   res.status(403).json({ errore: 'Cardio fatto e passi li inserisce il cliente' });
@@ -99,17 +109,19 @@ router.get('/cardio', autentica, async (req, res) => {
     }
     clienteId = richiesto;
   }
+  // Il trainer vede cardio e passi solo da quando il cliente è collegato a lui.
+  const dal = ruolo === 'TRAINER' ? await visibileDal(clienteId) : null;
 
   const [cliente, obiettivi, sessioni, passi] = await Promise.all([
     prisma.user.findUnique({ where: { id: clienteId }, select: { obiettivoPassi: true } }),
     prisma.obiettivoCardio.findMany({ where: { clienteId }, orderBy: { id: 'asc' }, select: campiObiettivo }),
     prisma.cardioFatto.findMany({
-      where: { clienteId, data: { gte: giorniFa(GIORNI_STORICO_CARDIO) } },
+      where: { clienteId, data: { gte: piuRecente(giorniFa(GIORNI_STORICO_CARDIO), dal) } },
       orderBy: [{ data: 'desc' }, { id: 'desc' }],
       select: campiSessione,
     }),
     prisma.passiGiornalieri.findMany({
-      where: { clienteId, data: { gte: giorniFa(GIORNI_STORICO_PASSI) } },
+      where: { clienteId, data: { gte: piuRecente(giorniFa(GIORNI_STORICO_PASSI), dal) } },
       orderBy: { data: 'asc' },
       select: campiPassi,
     }),
@@ -117,20 +129,17 @@ router.get('/cardio', autentica, async (req, res) => {
   res.json({ obiettivoPassi: cliente?.obiettivoPassi ?? null, obiettivi, sessioni, passi });
 });
 
-// ---------- Trainer: piano cardio e obiettivo passi ----------
+// ---------- Piano cardio e obiettivo passi (trainer, o chi si allena da solo) ----------
 
 router.post('/cardio/obiettivi', autentica, async (req, res) => {
-  if (!soloTrainer(req, res)) return;
-  const risultato = obiettivoSchema.extend({ clienteId: idSchema }).safeParse(req.body);
+  const risultato = obiettivoSchema.extend({ clienteId: idSchema.optional() }).safeParse(req.body);
   if (!risultato.success) {
     res.status(400).json({ errori: risultato.error.issues });
     return;
   }
-  const { clienteId, attivita, minuti, volteSettimana, nota } = risultato.data;
-  if (!(await clienteDelTrainer((req as any).userId, clienteId))) {
-    res.status(404).json({ errore: 'Cliente non trovato' });
-    return;
-  }
+  const { attivita, minuti, volteSettimana, nota } = risultato.data;
+  const clienteId = await clienteDelPiano(req, res, risultato.data.clienteId);
+  if (clienteId === null) return;
   if ((await prisma.obiettivoCardio.count({ where: { clienteId } })) >= MAX_OBIETTIVI) {
     res.status(400).json({ errore: 'Il piano cardio può avere al massimo 10 attività' });
     return;
@@ -142,13 +151,15 @@ router.post('/cardio/obiettivi', autentica, async (req, res) => {
   res.status(201).json(obiettivo);
 });
 
-// L'attività del piano, solo se è di un cliente di questo trainer.
-async function obiettivoDelTrainer(id: number, trainerId: number) {
-  return prisma.obiettivoCardio.findFirst({ where: { id, cliente: { trainerId } } });
+// L'attività del piano, solo se chi chiede può cambiarla: il trainer del cliente,
+// oppure il cliente stesso se si allena da solo.
+async function obiettivoModificabile(id: number, req: any) {
+  if (req.ruolo === 'TRAINER') return prisma.obiettivoCardio.findFirst({ where: { id, cliente: { trainerId: req.userId } } });
+  if (!(await eAutonomo(req.userId))) return null;
+  return prisma.obiettivoCardio.findFirst({ where: { id, clienteId: req.userId } });
 }
 
 router.put('/cardio/obiettivi/:id', autentica, async (req, res) => {
-  if (!soloTrainer(req, res)) return;
   const id = leggiId(req.params.id, res);
   if (id === null) return;
   const risultato = obiettivoSchema.safeParse(req.body);
@@ -156,7 +167,7 @@ router.put('/cardio/obiettivi/:id', autentica, async (req, res) => {
     res.status(400).json({ errori: risultato.error.issues });
     return;
   }
-  if (!(await obiettivoDelTrainer(id, (req as any).userId))) {
+  if (!(await obiettivoModificabile(id, req))) {
     res.status(404).json({ errore: 'Attività cardio non trovata' });
     return;
   }
@@ -171,10 +182,9 @@ router.put('/cardio/obiettivi/:id', autentica, async (req, res) => {
 
 // Togliere un'attività dal piano: il cardio già fatto dal cliente resta (perde solo il collegamento).
 router.delete('/cardio/obiettivi/:id', autentica, async (req, res) => {
-  if (!soloTrainer(req, res)) return;
   const id = leggiId(req.params.id, res);
   if (id === null) return;
-  if (!(await obiettivoDelTrainer(id, (req as any).userId))) {
+  if (!(await obiettivoModificabile(id, req))) {
     res.status(404).json({ errore: 'Attività cardio non trovata' });
     return;
   }
@@ -183,17 +193,14 @@ router.delete('/cardio/obiettivi/:id', autentica, async (req, res) => {
 });
 
 router.put('/cardio/obiettivo-passi', autentica, async (req, res) => {
-  if (!soloTrainer(req, res)) return;
   const risultato = obiettivoPassiSchema.safeParse(req.body);
   if (!risultato.success) {
     res.status(400).json({ errori: risultato.error.issues });
     return;
   }
-  const { clienteId, passi } = risultato.data;
-  if (!(await clienteDelTrainer((req as any).userId, clienteId))) {
-    res.status(404).json({ errore: 'Cliente non trovato' });
-    return;
-  }
+  const { passi } = risultato.data;
+  const clienteId = await clienteDelPiano(req, res, risultato.data.clienteId);
+  if (clienteId === null) return;
   await prisma.user.update({ where: { id: clienteId }, data: { obiettivoPassi: passi } });
   res.json({ obiettivoPassi: passi });
 });

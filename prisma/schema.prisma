@@ -48,13 +48,20 @@ model User {
   sospesoIl DateTime?
 
   // Solo per i CLIENTI: il trainer che li segue. Ogni trainer vede SOLO i suoi clienti.
-  // Per i trainer resta vuoto.
+  // Per i trainer resta vuoto. Un CLIENTE senza trainer "si allena da solo": crea le sue schede
+  // (fino a 3 gratis) e può collegarsi a un trainer quando vuole, o lasciarlo.
   trainerId Int?
+  // Da quando il cliente è collegato al trainer attuale (null = da sempre, es. registrato con il suo invito).
+  // Il trainer vede misure, cardio, passi e diario SOLO da questa data in poi: lo storico di prima
+  // (da solo o con un altro trainer) resta privato.
+  collegatoIl DateTime?
   trainer   User?  @relation("ClientiDelTrainer", fields: [trainerId], references: [id], onDelete: Restrict)
   clienti   User[] @relation("ClientiDelTrainer")
 
   // Un cliente possiede delle schede; un trainer non usa questo campo.
-  schede   Scheda[]
+  schede   Scheda[] @relation("SchedeDelCliente")
+  // Schede preparate da questo trainer (per i suoi clienti, attuali o passati).
+  schedeCreate Scheda[] @relation("SchedeDelTrainer")
 
   // Storico allenamenti: presente solo se ruolo = CLIENTE.
   registri RegistroAllenamento[]
@@ -68,9 +75,10 @@ model User {
   // Allenamenti chiusi con "Allenamento completato": presente solo se ruolo = CLIENTE.
   sessioni SessioneAllenamento[]
 
-  // Inviti creati da questo trainer / invito con cui si è registrato questo cliente.
+  // Inviti creati da questo trainer / inviti usati da questo cliente (per registrarsi o,
+  // più avanti, per collegarsi a un trainer: un cliente può cambiare trainer, quindi più di uno).
   invitiCreati Invito[] @relation("InvitiCreati")
-  invitoUsato  Invito?  @relation("InvitoUsato")
+  invitiUsati  Invito[] @relation("InvitoUsato")
 
   // Peso corporeo e % di massa grassa del cliente / misure inserite da questo utente.
   misure         MisuraCorporea[] @relation("MisureDelCliente")
@@ -232,9 +240,11 @@ model Invito {
   trainerId Int
   trainer   User @relation("InvitiCreati", fields: [trainerId], references: [id])
 
-  // Chi si è registrato con questo invito (al massimo una persona).
-  usatoDaId Int?  @unique
+  // Chi ha usato questo invito (al massimo una persona; una persona può usarne più d'uno nel tempo).
+  usatoDaId Int?
   usatoDa   User? @relation("InvitoUsato", fields: [usatoDaId], references: [id])
+
+  @@index([usatoDaId])
 }
 
 // Nota/tecnica salvata dal trainer, NON legata a un esercizio: si aggiunge con un
@@ -304,9 +314,19 @@ model Scheda {
   // Quando è stata creata: serve al trainer per capire quali schede sono le più vecchie.
   creataIl  DateTime  @default(now())
   clienteId Int
-  cliente   User        @relation(fields: [clienteId], references: [id])
+  cliente   User        @relation("SchedeDelCliente", fields: [clienteId], references: [id])
+  // Chi l'ha preparata: il trainer (solo lui la vede e la modifica, e solo finché il cliente è suo).
+  // Se il trainer elimina il suo account, la scheda resta al cliente con il suo storico (SetNull).
+  trainerId Int?
+  trainer   User?       @relation("SchedeDelTrainer", fields: [trainerId], references: [id], onDelete: SetNull)
+  // true = scheda che il cliente si è creato da solo. Conta nel limite delle 3 gratis
+  // e resta "in pausa" mentre il cliente è seguito da un trainer.
+  personale Boolean     @default(false)
   esercizi  Esercizio[]
   sessioni  SessioneAllenamento[]
+
+  @@index([clienteId])
+  @@index([trainerId])
 }
 
 // Come un esercizio è collegato al SUCCESSIVO della scheda.

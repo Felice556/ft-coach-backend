@@ -96,7 +96,9 @@ router.get('/sessioni', autentica, async (req, res) => {
   } else {
     const daQuery = leggiIdFacoltativo(req.query.clienteId, res);
     if (daQuery === null) return;
-    filtro = { cliente: { trainerId: userId }, ...(daQuery !== undefined ? { clienteId: daQuery } : {}) };
+    // Solo gli allenamenti sulle schede preparate da lui, dei clienti che segue ancora:
+    // quelli fatti da soli o con un altro trainer restano privati.
+    filtro = { cliente: { trainerId: userId }, scheda: { trainerId: userId }, ...(daQuery !== undefined ? { clienteId: daQuery } : {}) };
   }
 
   const sessioni = await prisma.sessioneAllenamento.findMany({
