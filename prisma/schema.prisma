@@ -96,7 +96,23 @@ model User {
   consensoDiarioIl DateTime?
   diario           GiornoDiario[]
 
+  // Programmi Liftio "in arrivo" per cui ha chiesto di essere avvisato.
+  avvisiProgrammi AvvisoProgramma[]
+
   @@index([trainerId])
+}
+
+// "Avvisami" su un programma Liftio in arrivo: serve a sapere quali programmi interessano
+// e ad avvisare la persona quando sarà pronto. Si toglie con un tocco; sparisce con l'account.
+model AvvisoProgramma {
+  id        Int      @id @default(autoincrement())
+  programma String // chiave del programma: "principiante", "intermedio" o "avanzato" (l'elenco sta nel backend)
+  creatoIl  DateTime @default(now())
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, programma])
 }
 
 // Diario alimentare: una pagina per giorno, la scrive il cliente. Il trainer la legge e può

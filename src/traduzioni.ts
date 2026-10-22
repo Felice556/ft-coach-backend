@@ -130,6 +130,9 @@ export const INGLESE: Record<string, string> = {
   'Sei già seguito da questo trainer': 'This trainer already coaches you',
   'Ti alleni già da solo': 'You already train on your own',
 
+  // Programmi in arrivo
+  'Programma non trovato': 'Programme not found',
+
   // Generici
   'Identificativo non valido': 'Invalid identifier',
   'Dati della richiesta non validi': 'Invalid request data',
