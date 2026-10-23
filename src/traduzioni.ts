@@ -135,6 +135,9 @@ export const INGLESE: Record<string, string> = {
   'Scrivi il messaggio': 'Write the message',
   'Il messaggio può avere al massimo 300 caratteri': 'The message can be at most 300 characters',
 
+  // Tecniche di intensità
+  'Pausa del rest-pause tra 5 e 120 secondi': 'Rest-pause break between 5 and 120 seconds',
+
   // Generici
   'Identificativo non valido': 'Invalid identifier',
   'Dati della richiesta non validi': 'Invalid request data',

@@ -18,11 +18,14 @@ const repsMaxSchema = z.number().int().positive().max(1000).nullable().default(n
 
 // "+ max" (drop set): fatte le ripetizioni previste, si scala il peso e si va a cedimento ("6-9 + max").
 const piuMaxSchema = z.boolean().default(false);
+// "+ rp" (rest-pause): pausa in secondi prima di riprendere con lo stesso peso ("6-9 + rp 15"). null = no.
+const rpSchema = z.number().int().min(5, 'Pausa del rest-pause tra 5 e 120 secondi').max(120, 'Pausa del rest-pause tra 5 e 120 secondi').nullable().default(null);
 
 const serieExtraSchema = z.object({
   reps: repsSchema,
   repsMax: repsMaxSchema,
   piuMax: piuMaxSchema,
+  rpSecondi: rpSchema,
   recuperoSecondi: z.number().int().min(0).max(3600),
   nota: z.string().max(200).optional(),
 });
@@ -36,6 +39,7 @@ const esercizioSchema = z.object({
   repsTarget: repsSchema,
   repsMax: repsMaxSchema,
   piuMax: piuMaxSchema,
+  rpSecondi: rpSchema,
   recuperoSecondi: z.number().int().min(0).max(3600), // 0 = nessun recupero
   serieExtra: z.array(serieExtraSchema).max(10).default([]),
   // Collegato all'esercizio successivo: SUPERSET (senza recupero in mezzo) o JUMPSET
@@ -56,7 +60,8 @@ function massimoValido(min: number | null, max: number | null): number | null {
 }
 
 // "+ max" solo dopo un numero di ripetizioni: "Max + max" non vuol dire niente, quindi lo togliamo.
-const piuMaxValido = (reps: number | null, piuMax: boolean | undefined) => reps != null && piuMax === true;
+// Con il rest-pause il "+ max" si toglie: la tecnica finale è una sola.
+const piuMaxValido = (reps: number | null, piuMax: boolean | undefined, rpSecondi?: number | null) => reps != null && piuMax === true && rpSecondi == null;
 
 // Ogni lettura di una scheda porta con sé gli esercizi ATTIVI (non archiviati)
 // e le loro serie extra, sempre nello stesso ordine.
@@ -75,7 +80,8 @@ function datiSerieExtra(extra: SerieExtraInput[]) {
     ordine: i,
     reps: s.reps,
     repsMax: massimoValido(s.reps, s.repsMax),
-    piuMax: piuMaxValido(s.reps, s.piuMax),
+    piuMax: piuMaxValido(s.reps, s.piuMax, s.rpSecondi),
+    rpSecondi: s.rpSecondi ?? null,
     recuperoSecondi: s.recuperoSecondi,
     nota: s.nota || null,
   }));
@@ -146,7 +152,8 @@ router.post('/schede', autentica, async (req, res) => {
         create: esercizi.map(({ serieExtra, ...es }) => ({
           ...es,
           repsMax: massimoValido(es.repsTarget, es.repsMax),
-          piuMax: piuMaxValido(es.repsTarget, es.piuMax),
+          piuMax: piuMaxValido(es.repsTarget, es.piuMax, es.rpSecondi),
+          rpSecondi: es.rpSecondi ?? null,
           serieExtra: { create: datiSerieExtra(serieExtra) },
         })),
       },
@@ -312,7 +319,8 @@ router.put('/schede/:id', autentica, async (req, res) => {
         const campi = {
           ...dati,
           repsMax: massimoValido(dati.repsTarget, dati.repsMax),
-          piuMax: piuMaxValido(dati.repsTarget, dati.piuMax),
+          piuMax: piuMaxValido(dati.repsTarget, dati.piuMax, dati.rpSecondi),
+          rpSecondi: dati.rpSecondi ?? null,
           videoUrl: dati.videoUrl ?? null,
           descrizione: dati.descrizione ?? null,
         };
@@ -434,13 +442,15 @@ router.put('/esercizi/:id', autentica, async (req, res) => {
   const min = campi.repsTarget !== undefined ? campi.repsTarget : esistente.repsTarget;
   const max = campi.repsMax !== undefined ? campi.repsMax : esistente.repsMax;
   const piuMax = campi.piuMax !== undefined ? campi.piuMax : esistente.piuMax;
+  const rpSecondi = campi.rpSecondi !== undefined ? campi.rpSecondi : esistente.rpSecondi;
 
   const esercizio = await prisma.esercizio.update({
     where: { id },
     data: {
       ...campi,
       repsMax: massimoValido(min, max),
-      piuMax: piuMaxValido(min, piuMax),
+      piuMax: piuMaxValido(min, piuMax, rpSecondi),
+      rpSecondi,
       ...(serieExtra ? { serieExtra: { deleteMany: {}, create: datiSerieExtra(serieExtra) } } : {}),
     },
     include: { serieExtra: { orderBy: { ordine: 'asc' } } },

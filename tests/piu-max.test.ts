@@ -60,3 +60,20 @@ describe('Ripetizioni "+ max"', () => {
     expect(r.body.esercizi[1].piuMax).toBe(true);
   });
 });
+
+describe('Rest-pause "+ rp"', () => {
+  it('si salva con la sua pausa; esclude il + max; pause assurde rifiutate', async () => {
+    const esercizi = [
+      { nome: 'Lat machine', serieTarget: 2, repsTarget: 8, repsMax: 10, rpSecondi: 15, piuMax: true, recuperoSecondi: 90, serieExtra: [{ reps: null, rpSecondi: 20, recuperoSecondi: 60 }] },
+    ];
+    const r = await api().post('/schede').set(auth(tF)).send(schedaDiProva(ids.alessio.id, esercizi));
+    expect(r.status).toBe(201);
+    const es = r.body.esercizi[0];
+    expect(es).toMatchObject({ rpSecondi: 15, piuMax: false }); // o l'uno o l'altro
+    expect(es.serieExtra[0]).toMatchObject({ reps: null, rpSecondi: 20 }); // "Max + rp 20" ha senso
+    const troppo = await api().post('/schede').set(auth(tF)).send(schedaDiProva(ids.alessio.id, [{ ...esercizi[0], rpSecondi: 500, serieExtra: [] }]));
+    expect(troppo.status).toBe(400);
+    // Si toglie con la modifica singola
+    expect((await api().put(`/esercizi/${es.id}`).set(auth(tF)).send({ rpSecondi: null })).body.rpSecondi).toBeNull();
+  });
+});
