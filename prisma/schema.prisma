@@ -372,6 +372,9 @@ model Esercizio {
   serieTarget     Int
   repsTarget      Int? // null = "Max" (a cedimento); con repsMax è il minimo dell'intervallo
   repsMax         Int? // solo per gli intervalli: "6-9" → repsTarget 6, repsMax 9
+  // "+ max" (drop set): fatte le ripetizioni previste, si scala il peso e si continua fino a cedimento.
+  // Es. "6-9 + max". Non ha senso con "Max" da solo (repsTarget null): lì resta sempre false.
+  piuMax          Boolean @default(false)
   recuperoSecondi Int
   // Esercizio tolto da una scheda: resta nel database (con le serie registrate), solo nascosto.
   archiviatoIl    DateTime?
@@ -394,6 +397,7 @@ model SerieExtra {
   ordine          Int // posizione tra le serie extra (0, 1, 2…)
   reps            Int? // null = "Max" (a cedimento); con repsMax è il minimo dell'intervallo
   repsMax         Int? // solo per gli intervalli, come sopra
+  piuMax          Boolean @default(false) // "+ max" (drop set), come sopra
   recuperoSecondi Int
   nota            String? // es. "drop set", "a cedimento", "fermo 2s al petto"
 
