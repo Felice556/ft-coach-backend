@@ -10,7 +10,13 @@ import { NextFunction, Request, Response } from 'express';
 export const INGLESE: Record<string, string> = {
   // Accesso e account
   'Credenziali non valide': 'Invalid email or password',
-  'Email già registrata': 'Email already registered',
+  'Email già registrata: se è la tua, accedi o usa "Password dimenticata?"': 'Email already registered: if it’s yours, sign in or use "Forgot your password?"',
+  'Il link non è valido o è scaduto': 'The link is invalid or has expired',
+  'Questa email è già stata confermata: l’account non si può annullare da qui': 'This email has already been confirmed: the account can’t be cancelled from here',
+  'Questo account ha già dei clienti collegati: scrivi all’amministratore di Liftio': 'This account already has linked clients: write to the Liftio administrator',
+  'La tua email è già confermata': 'Your email is already confirmed',
+  'Ti abbiamo già mandato diverse email: controlla anche lo spam, o riprova tra un’ora': 'We’ve already sent you several emails: check your spam folder too, or try again in an hour',
+  'È già la tua email': 'That’s already your email',
   'Email non valida': 'Invalid email',
   'Il nome deve avere almeno 2 caratteri': 'The name must be at least 2 characters',
   'La password deve avere almeno 8 caratteri': 'The password must be at least 8 characters',

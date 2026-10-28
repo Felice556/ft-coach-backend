@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import crypto from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import bcrypt from 'bcrypt';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
@@ -8,6 +8,7 @@ import { limitePasswordDimenticata, limiteReimpostaPassword } from '../limiti.js
 import { linguaRichiesta } from '../traduzioni.js';
 import { inviaEmail } from '../email.js';
 import { emailReset } from '../email-testi.js';
+import { impronta, indirizzoApp } from '../conferma-email.js';
 
 // "Password dimenticata?" per TUTTI (anche chi si allena da solo e i trainer):
 // 1) POST /password/dimenticata con l'email → se l'account esiste, parte un'email con un link;
@@ -22,11 +23,6 @@ export const MASSIMO_LINK_ORA = 3;
 
 const UN_ORA = 60 * 60 * 1000;
 const UN_GIORNO = 24 * UN_ORA;
-
-const impronta = (codice: string) => crypto.createHash('sha256').update(codice).digest('hex');
-
-// Indirizzo dell'app per il link nell'email (su Render si può cambiare con APP_URL).
-const indirizzoApp = () => (process.env.APP_URL || 'https://liftio.it').replace(/\/+$/, '');
 
 const passwordSchema = z.string().min(8, 'La password deve avere almeno 8 caratteri').max(72);
 
@@ -59,7 +55,7 @@ router.post('/password/dimenticata', limitePasswordDimenticata, async (req, res)
     if (recenti < MASSIMO_LINK_ORA) {
       const adesso = new Date();
       // Il codice vero va solo nell'email; nel database ne salviamo l'impronta.
-      const codice = crypto.randomBytes(32).toString('base64url');
+      const codice = randomBytes(32).toString('base64url');
       await prisma.$transaction([
         // Un link nuovo annulla quelli vecchi non ancora usati.
         prisma.resetPassword.updateMany({

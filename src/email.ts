@@ -21,7 +21,7 @@ export async function inviaEmail(email: Email): Promise<boolean> {
   }
   const chiave = process.env.RESEND_API_KEY;
   if (!chiave) {
-    console.warn('RESEND_API_KEY non impostata: email non inviata.');
+    if (!process.env.VITEST) console.warn('RESEND_API_KEY non impostata: email non inviata.');
     return false;
   }
   try {

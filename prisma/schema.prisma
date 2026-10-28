@@ -18,6 +18,11 @@ model User {
   password String
   ruolo    Ruolo
 
+  // Quando ha confermato l'email dal link ricevuto (null = non ancora). Non blocca l'accesso:
+  // serve a scoprire gli errori di battitura e a chi riceve un'iscrizione non sua per annullarla.
+  // Gli account creati prima di questa funzione risultano già confermati (vedi la migrazione).
+  emailConfermataIl DateTime?
+
   // true dopo che il trainer ha reimpostato la password: al prossimo accesso
   // l'utente deve sceglierne una sua (così il trainer non conosce quella definitiva).
   passwordTemporanea Boolean @default(false)
@@ -101,6 +106,8 @@ model User {
 
   // Link "Password dimenticata?" mandati per email (vedi ResetPassword).
   resetPassword ResetPassword[]
+  // Link "Conferma la tua email" / "Non sono stato io" (vedi ConfermaEmail).
+  confermeEmail ConfermaEmail[]
 
   @@index([trainerId])
 }
@@ -112,6 +119,24 @@ model User {
 model ResetPassword {
   id        Int       @id @default(autoincrement())
   tokenHash String    @unique
+  scadeIl   DateTime
+  usatoIl   DateTime?
+  creatoIl  DateTime  @default(now())
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// Email di conferma dopo l'iscrizione (o dopo un cambio di email): un link con due azioni,
+// "Conferma la mia email" e "Non sono stato io: annulla la registrazione". Vale 7 giorni.
+// Come per ResetPassword, nel database c'è solo l'impronta del codice. `email` è l'indirizzo
+// a cui è stato mandato: se poi l'email dell'account cambia, il vecchio link non vale più.
+model ConfermaEmail {
+  id        Int       @id @default(autoincrement())
+  tokenHash String    @unique
+  email     String
   scadeIl   DateTime
   usatoIl   DateTime?
   creatoIl  DateTime  @default(now())

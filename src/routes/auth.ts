@@ -7,6 +7,9 @@ import { leggiId } from '../utils.js';
 import { limiteCambioPassword, limiteCollegamento, limiteLoginPerEmail, limiteLoginPerIp, limiteRegistrazione } from '../limiti.js';
 import { normalizzaCodice } from './inviti.js';
 import { clienteDelTrainer, LIMITE_SCHEDE_GRATIS, schedePersonali } from '../proprieta.js';
+import { cancellaAccount } from '../elimina-account.js';
+import { mandaConfermaEmail } from '../conferma-email.js';
+import { linguaRichiesta } from '../traduzioni.js';
 
 const router = Router();
 
@@ -59,7 +62,7 @@ router.post('/register', limiteRegistrazione, async (req, res) => {
   // Confronto senza distinguere maiuscole/minuscole: "Alessio@Test.com" = "alessio@test.com".
   const esistente = await prisma.user.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
   if (esistente) {
-    res.status(400).json({ errore: 'Email già registrata' });
+    res.status(400).json({ errore: 'Email già registrata: se è la tua, accedi o usa "Password dimenticata?"' });
     return;
   }
 
@@ -111,6 +114,9 @@ router.post('/register', limiteRegistrazione, async (req, res) => {
     }
     throw err;
   }
+
+  // Email "Conferma il tuo indirizzo" (non blocca l'accesso; contiene anche "Non sono stato io").
+  await mandaConfermaEmail(utente, linguaRichiesta(req));
 
   // Non restituiamo mai la password, nemmeno hashata.
   res.status(201).json({ id: utente.id, nome: utente.nome, ruolo: utente.ruolo, inAttesa });
@@ -266,12 +272,14 @@ router.put('/clienti/:id/email', autentica, richiedeRuolo('TRAINER'), async (req
     res.status(409).json({ errore: 'Questa email è già usata da un altro account' });
     return;
   }
+  // La nuova email va confermata: il cliente riceve il link al nuovo indirizzo.
   const aggiornato = await prisma.user.update({
     where: { id },
-    data: { email },
+    data: { email, emailConfermataIl: null },
     select: { id: true, nome: true, email: true },
   });
-  res.json(aggiornato);
+  await mandaConfermaEmail(aggiornato, linguaRichiesta(req));
+  res.json({ ...aggiornato, emailConfermata: false });
 });
 
 // Elenco dei clienti per il trainer: serve al menu a tendina quando assegna una scheda,
@@ -279,10 +287,11 @@ router.put('/clienti/:id/email', autentica, richiedeRuolo('TRAINER'), async (req
 router.get('/clienti', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
   const clienti = await prisma.user.findMany({
     where: { ruolo: 'CLIENTE', trainerId: (req as any).userId as number },
-    select: { id: true, nome: true, email: true, sospeso: true }, // mai la password
+    select: { id: true, nome: true, email: true, sospeso: true, emailConfermataIl: true }, // mai la password
     orderBy: { nome: 'asc' },
   });
-  res.json(clienti);
+  // emailConfermata: il trainer vede chi non ha ancora confermato (spesso un errore di battitura).
+  res.json(clienti.map(({ emailConfermataIl, ...c }) => ({ ...c, emailConfermata: emailConfermataIl !== null })));
 });
 
 // Il trainer sospende o riattiva un SUO cliente. Nessun dato viene toccato: il cliente
@@ -309,11 +318,11 @@ for (const [azione, sospeso] of [['sospendi', true], ['riattiva', false]] as con
 async function datiMe(id: number) {
   const utente = await prisma.user.findUnique({
     where: { id },
-    select: { id: true, nome: true, ruolo: true, admin: true, approvato: true, trainer: { select: { nome: true } } }, // mai la password
+    select: { id: true, nome: true, email: true, ruolo: true, admin: true, approvato: true, emailConfermataIl: true, trainer: { select: { nome: true } } }, // mai la password
   });
   if (!utente) return null;
-  const { approvato, trainer, ...resto } = utente;
-  const base = { ...resto, inAttesa: utente.ruolo === 'TRAINER' && !approvato };
+  const { approvato, trainer, emailConfermataIl, ...resto } = utente;
+  const base = { ...resto, emailConfermata: emailConfermataIl !== null, inAttesa: utente.ruolo === 'TRAINER' && !approvato };
   if (utente.ruolo !== 'CLIENTE') return base;
   return {
     ...base,
@@ -448,33 +457,7 @@ router.delete('/me', limiteCambioPassword, autentica, async (req, res) => {
     }
   }
 
-  const id = utente.id;
-  // Tutto in una transazione: o si cancella tutto, o non si cancella niente.
-  await prisma.$transaction(async (tx) => {
-    if (utente.ruolo === 'CLIENTE') {
-      // Prima le serie e gli allenamenti conclusi (bloccano la cancellazione di esercizi e schede),
-      // poi misure e schede (gli esercizi delle schede si cancellano insieme a loro).
-      await tx.registroAllenamento.deleteMany({ where: { clienteId: id } });
-      await tx.sessioneAllenamento.deleteMany({ where: { clienteId: id } });
-      await tx.misuraCorporea.deleteMany({ where: { OR: [{ clienteId: id }, { inseritaDaId: id }] } });
-      await tx.cardioFatto.deleteMany({ where: { clienteId: id } });
-      await tx.obiettivoCardio.deleteMany({ where: { clienteId: id } });
-      await tx.passiGiornalieri.deleteMany({ where: { clienteId: id } });
-      await tx.giornoDiario.deleteMany({ where: { clienteId: id } }); // i pasti si cancellano con le giornate
-      await tx.scheda.deleteMany({ where: { clienteId: id } });
-    } else {
-      // Trainer senza clienti: i suoi inviti (non servono più a nessuno). Libreria esercizi
-      // e note salvate si cancellano da sole insieme a lui (onDelete: Cascade).
-      await tx.invito.deleteMany({ where: { trainerId: id } });
-      // Clienti che lo hanno lasciato: le schede che aveva preparato restano a loro con lo storico
-      // (il database toglie solo il collegamento al trainer), e la massa grassa che aveva inserito
-      // per loro resta, segnata come inserita dal cliente stesso.
-      await tx.$executeRaw`UPDATE "MisuraCorporea" SET "inseritaDaId" = "clienteId" WHERE "inseritaDaId" = ${id}`;
-    }
-    // L'invito con cui si era registrato resta nello storico di chi l'ha creato, senza più il collegamento.
-    await tx.invito.updateMany({ where: { usatoDaId: id }, data: { usatoDaId: null } });
-    await tx.user.delete({ where: { id } });
-  });
+  await cancellaAccount(utente);
   res.status(204).send();
 });
 

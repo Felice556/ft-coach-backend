@@ -102,6 +102,16 @@ export const limiteReimpostaPassword = rateLimit({
   handler: risposta('Troppi tentativi. Riprova tra 15 minuti.'),
 });
 
+// Link dell'email di conferma (conferma, "non sono stato io", lettura del link): 20 in 15 minuti.
+export const limiteLinkEmail = rateLimit({
+  windowMs: QUINDICI_MINUTI,
+  limit: 20,
+  keyGenerator: (req) => ip(req),
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  handler: risposta('Troppi tentativi. Riprova tra 15 minuti.'),
+});
+
 // Limite generale molto largo: un uso normale non ci arriva mai, ma ferma
 // uno script che bombarda il server di richieste.
 export const limiteGenerale = rateLimit({

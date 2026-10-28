@@ -16,6 +16,7 @@ import cardioRouter from './routes/cardio.js';
 import diarioRouter from './routes/diario.js';
 import programmiRouter from './routes/programmi.js';
 import passwordRouter from './routes/password.js';
+import emailRouter from './routes/email.js';
 import { messaggiNellaLingua } from './traduzioni.js';
 
 // L'app Express, senza avviarla: così i test (tests/) possono usarla direttamente,
@@ -65,6 +66,7 @@ app.use(cardioRouter);
 app.use(diarioRouter);
 app.use(programmiRouter);
 app.use(passwordRouter);
+app.use(emailRouter);
 
 // Gestore degli errori imprevisti (database irraggiungibile, bug, ecc.).
 // Express 5 ci porta qui anche gli errori delle rotte async: la singola richiesta
