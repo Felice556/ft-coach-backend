@@ -81,6 +81,27 @@ export const limiteCollegamento = rateLimit({
   handler: risposta('Troppi tentativi. Riprova tra 15 minuti.'),
 });
 
+// "Password dimenticata?": massimo 5 richieste in 15 minuti dalla stessa rete
+// (in più c'è il limite di 3 link all'ora per persona, in routes/password.ts).
+export const limitePasswordDimenticata = rateLimit({
+  windowMs: QUINDICI_MINUTI,
+  limit: 5,
+  keyGenerator: (req) => ip(req),
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  handler: risposta('Troppe richieste. Riprova tra 15 minuti.'),
+});
+
+// Nuova password dal link: massimo 10 tentativi in 15 minuti (nessuno può provare codici a caso).
+export const limiteReimpostaPassword = rateLimit({
+  windowMs: QUINDICI_MINUTI,
+  limit: 10,
+  keyGenerator: (req) => ip(req),
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  handler: risposta('Troppi tentativi. Riprova tra 15 minuti.'),
+});
+
 // Limite generale molto largo: un uso normale non ci arriva mai, ma ferma
 // uno script che bombarda il server di richieste.
 export const limiteGenerale = rateLimit({

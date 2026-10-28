@@ -99,7 +99,27 @@ model User {
   // Programmi Liftio "in arrivo" per cui ha chiesto di essere avvisato.
   avvisiProgrammi AvvisoProgramma[]
 
+  // Link "Password dimenticata?" mandati per email (vedi ResetPassword).
+  resetPassword ResetPassword[]
+
   @@index([trainerId])
+}
+
+// "Password dimenticata?": un link mandato per email, valido 30 minuti e usabile UNA volta.
+// Nel database c'è solo l'impronta (SHA-256) del codice del link, mai il codice: chi leggesse
+// il database non potrebbe usarlo. Le righe servono anche a limitare i link chiesti in un'ora;
+// si cancellano da sole dopo un giorno e spariscono con l'account.
+model ResetPassword {
+  id        Int       @id @default(autoincrement())
+  tokenHash String    @unique
+  scadeIl   DateTime
+  usatoIl   DateTime?
+  creatoIl  DateTime  @default(now())
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 // "Avvisami" su un programma Liftio in arrivo: serve a sapere quali programmi interessano

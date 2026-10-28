@@ -37,6 +37,7 @@ export const INGLESE: Record<string, string> = {
   "L'account amministratore non si può eliminare dall'app": 'The administrator account can’t be deleted from the app',
   'Questa email è già usata da un altro account': 'This email is already used by another account',
   'Utente non trovato': 'User not found',
+  'Il link non è valido o è scaduto: chiedine uno nuovo': 'The link is invalid or has expired: request a new one',
 
   // Limiti ai tentativi
   'Troppi tentativi sbagliati. Riprova tra 15 minuti.': 'Too many wrong attempts. Try again in 15 minutes.',
@@ -45,6 +46,7 @@ export const INGLESE: Record<string, string> = {
   'Troppe registrazioni da questa rete. Riprova tra un’ora.': 'Too many sign-ups from this network. Try again in an hour.',
   'Troppe richieste in poco tempo. Riprova tra un minuto.': 'Too many requests in a short time. Try again in a minute.',
   'Troppi tentativi. Riprova tra 15 minuti.': 'Too many attempts. Try again in 15 minutes.',
+  'Troppe richieste. Riprova tra 15 minuti.': 'Too many requests. Try again in 15 minutes.',
 
   // Clienti, trainer e inviti
   'Cliente non trovato': 'Client not found',

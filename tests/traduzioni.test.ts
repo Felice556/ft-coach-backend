@@ -16,6 +16,8 @@ function messaggiNelCodice(): string[] {
   const trovati = new Set<string>();
   for (const f of file(path.join(__dirname, '../src'))) {
     if (f.endsWith('traduzioni.ts')) continue;
+    // Testi e log delle email (src/email.ts, src/email-testi.ts): non sono risposte da tradurre.
+    if (/[\\/]email(-testi)?\.ts$/.test(f)) continue;
     const codice = fs
       .readFileSync(f, 'utf8')
       .split('\n')
