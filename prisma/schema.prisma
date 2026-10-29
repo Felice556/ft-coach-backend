@@ -429,6 +429,9 @@ model Esercizio {
   // Collegato all'esercizio successivo (null = esercizio singolo). Più esercizi
   // collegati di fila formano un gruppo: superset, jumpset, triset...
   collegamento    TipoCollegamento?
+  // Posizione nella scheda (0, 1, 2…): il trainer può trascinare gli esercizi per cambiarne l'ordine.
+  // A parità (es. esercizi vecchi) decide l'id, cioè l'ordine di inserimento.
+  ordine          Int     @default(0)
 
   schedaId Int
   scheda   Scheda @relation(fields: [schedaId], references: [id], onDelete: Cascade)

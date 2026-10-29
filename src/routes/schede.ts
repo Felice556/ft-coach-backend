@@ -71,7 +71,8 @@ const piuMaxValido = (reps: number | null, piuMax: boolean | undefined, rpSecond
 const conEsercizi = {
   esercizi: {
     where: { archiviatoIl: null },
-    orderBy: { id: 'asc' as const },
+    // Nell'ordine scelto dal trainer (trascinando gli esercizi); a parità, quello di inserimento.
+    orderBy: [{ ordine: 'asc' as const }, { id: 'asc' as const }],
     include: { serieExtra: { orderBy: { ordine: 'asc' as const } } },
   },
 };
@@ -152,8 +153,9 @@ router.post('/schede', autentica, async (req, res) => {
       ...autore,
       // Creazione annidata su tre livelli: scheda → esercizi → serie extra, in un colpo solo.
       esercizi: {
-        create: esercizi.map(({ serieExtra, ...es }) => ({
+        create: esercizi.map(({ serieExtra, ...es }, ordine) => ({
           ...es,
+          ordine,
           repsMax: massimoValido(es.repsTarget, es.repsMax),
           piuMax: piuMaxValido(es.repsTarget, es.piuMax, es.rpSecondi),
           rpSecondi: es.rpSecondi ?? null,
@@ -317,10 +319,12 @@ router.put('/schede/:id', autentica, async (req, res) => {
         });
       }
 
-      for (const { id: esercizioId, serieExtra, ...dati } of esercizi) {
+      for (const [ordine, { id: esercizioId, serieExtra, ...dati }] of esercizi.entries()) {
         // Campi opzionali svuotati → null, altrimenti Prisma lascerebbe il vecchio valore.
+        // L'ordine è la posizione nell'elenco mandato: così si salva anche il riordino.
         const campi = {
           ...dati,
+          ordine,
           repsMax: massimoValido(dati.repsTarget, dati.repsMax),
           piuMax: piuMaxValido(dati.repsTarget, dati.piuMax, dati.rpSecondi),
           rpSecondi: dati.rpSecondi ?? null,
@@ -488,7 +492,7 @@ router.get('/schede/:id/storico', autentica, async (req, res) => {
       // attivi sempre; quelli tolti solo se hanno serie (altrimenti non c'è niente da mostrare)
       OR: [{ archiviatoIl: null }, { registri: { some: {} } }],
     },
-    orderBy: { id: 'asc' },
+    orderBy: [{ ordine: 'asc' }, { id: 'asc' }],
     include: {
       serieExtra: { orderBy: { ordine: 'asc' } },
       registri: {
@@ -523,14 +527,23 @@ router.post('/esercizi/:id/ripristina', autentica, async (req, res) => {
   const gestibili = await gestibiliORifiuta(req, res);
   if (!gestibili) return;
   // Solo se la scheda è attiva: in una scheda archiviata si ripristina prima la scheda.
-  const { count } = await prisma.esercizio.updateMany({
+  const esercizio = await prisma.esercizio.findFirst({
     where: { id, archiviatoIl: { not: null }, scheda: { archiviataIl: null, ...gestibili } },
-    data: { archiviatoIl: null },
+    select: { schedaId: true },
   });
-  if (count === 0) {
+  if (!esercizio) {
     res.status(404).json({ errore: 'Esercizio non trovato, non archiviato, o scheda archiviata' });
     return;
   }
+  // Torna in fondo alla scheda, come lo mostra il form del trainer.
+  const ultimo = await prisma.esercizio.aggregate({
+    where: { schedaId: esercizio.schedaId, archiviatoIl: null },
+    _max: { ordine: true },
+  });
+  await prisma.esercizio.update({
+    where: { id },
+    data: { archiviatoIl: null, ordine: (ultimo._max.ordine ?? -1) + 1 },
+  });
   res.status(204).send();
 });
 

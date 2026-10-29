@@ -38,7 +38,7 @@ router.post('/sessioni', autentica, richiedeRuolo('CLIENTE'), async (req, res) =
   // Contano solo gli esercizi attivi: quelli tolti dal trainer non fanno più parte del programma.
   const scheda = await prisma.scheda.findFirst({
     where: { id: schedaId, clienteId, archiviataIl: null },
-    include: { esercizi: { where: { archiviatoIl: null }, include: { serieExtra: true } } },
+    include: { esercizi: { where: { archiviatoIl: null }, orderBy: [{ ordine: 'asc' }, { id: 'asc' }], include: { serieExtra: true } } },
   });
   if (!scheda) {
     res.status(404).json({ errore: 'Scheda non trovata' });
