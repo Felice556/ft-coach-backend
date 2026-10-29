@@ -76,4 +76,16 @@ describe('Rest-pause "+ rp"', () => {
     // Si toglie con la modifica singola
     expect((await api().put(`/esercizi/${es.id}`).set(auth(tF)).send({ rpSecondi: null })).body.rpSecondi).toBeNull();
   });
+
+  it('modificando un solo campo dell\u2019esercizio, il resto (reps max, rp, collegamento, serie aggiunte) non cambia', async () => {
+    const s = (await api().post('/schede').set(auth(tF)).send(schedaDiProva(ids.alessio.id, [
+      { nome: 'Lat machine', serieTarget: 2, repsTarget: 8, repsMax: 10, rpSecondi: 15, recuperoSecondi: 90, collegamento: 'SUPERSET', serieExtra: [{ reps: 6, recuperoSecondi: 60 }] },
+      { nome: 'Pulley', serieTarget: 3, repsTarget: 10, recuperoSecondi: 60 },
+    ]))).body;
+    const r = await api().put(`/esercizi/${s.esercizi[0].id}`).set(auth(tF)).send({ recuperoSecondi: 120 });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ recuperoSecondi: 120, repsMax: 10, rpSecondi: 15, piuMax: false, collegamento: 'SUPERSET' });
+    expect(r.body.serieExtra).toHaveLength(1);
+  });
 });
+

@@ -14,12 +14,15 @@ const router = Router();
 // Tetti ragionevoli su tutti i numeri e i testi: un errore di battitura (o una richiesta
 // fatta apposta) non può riempire il database di valori assurdi.
 const repsSchema = z.number().int().positive().max(1000).nullable();
-const repsMaxSchema = z.number().int().positive().max(1000).nullable().default(null);
+const repsMaxBase = z.number().int().positive().max(1000).nullable();
+const repsMaxSchema = repsMaxBase.default(null);
 
 // "+ max" (drop set): fatte le ripetizioni previste, si scala il peso e si va a cedimento ("6-9 + max").
-const piuMaxSchema = z.boolean().default(false);
+const piuMaxBase = z.boolean();
+const piuMaxSchema = piuMaxBase.default(false);
 // "+ rp" (rest-pause): pausa in secondi prima di riprendere con lo stesso peso ("6-9 + rp 15"). null = no.
-const rpSchema = z.number().int().min(5, 'Pausa del rest-pause tra 5 e 120 secondi').max(120, 'Pausa del rest-pause tra 5 e 120 secondi').nullable().default(null);
+const rpBase = z.number().int().min(5, 'Pausa del rest-pause tra 5 e 120 secondi').max(120, 'Pausa del rest-pause tra 5 e 120 secondi').nullable();
+const rpSchema = rpBase.default(null);
 
 const serieExtraSchema = z.object({
   reps: repsSchema,
@@ -414,8 +417,13 @@ router.delete('/schede/:id', autentica, async (req, res) => {
 
 // ---------- Singolo esercizio ----------
 
-// Per la modifica singola le serie extra sono facoltative: se non le mandi, restano come sono.
+// Per la modifica singola tutto è facoltativo: quello che non mandi resta com'è.
+// Attenzione: con zod 4 .partial() applicherebbe comunque i .default() (es. piuMax → false),
+// quindi i campi con un default vanno ridichiarati qui senza default.
 const modificaEsercizioSchema = esercizioSchema.partial().extend({
+  repsMax: repsMaxBase.optional(),
+  piuMax: piuMaxBase.optional(),
+  rpSecondi: rpBase.optional(),
   serieExtra: z.array(serieExtraSchema).max(10).optional(),
   collegamento: z.enum(['SUPERSET', 'JUMPSET']).nullable().optional(),
 });
