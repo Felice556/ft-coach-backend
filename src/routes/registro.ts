@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
 import { autentica, richiedeRuolo } from '../middleware/auth.js';
-import { leggiId } from '../utils.js';
+import { leggiId, leggiIdFacoltativo } from '../utils.js';
+import { clienteDelTrainer, eserciziDelTrainer } from '../proprieta.js';
 
 const router = Router();
 
@@ -88,6 +89,39 @@ router.get('/registro/:esercizioId', autentica, async (req, res) => {
     orderBy: { data: 'asc' },
   });
   res.json(storico);
+});
+
+// ---- Storico pesi generale: tutte le serie di un cliente, su tutte le schede ----
+// In più rispetto allo storico della singola scheda (che resta com'è): l'app raggruppa
+// le serie per nome dell'esercizio, così "Panca piana" della scheda vecchia e di quella
+// nuova finiscono nello stesso grafico. Cliente: GET /storico-pesi · Trainer: ?clienteId=5
+router.get('/storico-pesi', autentica, async (req, res) => {
+  const ruolo = (req as any).ruolo as 'CLIENTE' | 'TRAINER';
+  const utenteId = (req as any).userId as number;
+  let clienteId = utenteId;
+  if (ruolo === 'TRAINER') {
+    const richiesto = leggiIdFacoltativo(req.query.clienteId, res);
+    if (richiesto === null) return;
+    if (!richiesto) {
+      res.status(400).json({ errore: 'Indica il cliente' });
+      return;
+    }
+    if (!(await clienteDelTrainer(utenteId, richiesto))) {
+      res.status(404).json({ errore: 'Cliente non trovato' });
+      return;
+    }
+    clienteId = richiesto;
+  }
+  const serie = await prisma.registroAllenamento.findMany({
+    // Il cliente vede tutte le sue serie; il trainer solo quelle sulle schede preparate da lui
+    // (stessa regola dello storico di una scheda).
+    where: ruolo === 'TRAINER' ? { clienteId, esercizio: eserciziDelTrainer(utenteId) } : { clienteId },
+    orderBy: { data: 'asc' },
+    include: { esercizio: { select: { nome: true, scheda: { select: { id: true, nome: true } } } } },
+  });
+  res.json(
+    serie.map(({ esercizio, ...r }) => ({ ...r, nomeEsercizio: esercizio.nome, schedaId: esercizio.scheda.id, nomeScheda: esercizio.scheda.nome })),
+  );
 });
 
 // ---- Correzione di una serie già registrata (es. 60 kg scritto al posto di 65) ----
