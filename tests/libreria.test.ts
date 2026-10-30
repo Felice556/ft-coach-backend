@@ -33,6 +33,17 @@ describe('Libreria esercizi divisa per gruppi muscolari', () => {
     expect(elenco.find((p: { id: number }) => p.id === pancaId).gruppo).toBe('SPALLE');
   });
 
+  it('le braccia si dividono in bicipiti e tricipiti; il vecchio "Braccia" resta valido', async () => {
+    const curl = await api().post('/preset-esercizi').set(auth(tF)).send({ nome: 'Curl bilanciere', gruppo: 'BICIPITI' });
+    expect(curl.status).toBe(201);
+    expect(curl.body.gruppo).toBe('BICIPITI');
+    const pushdown = await api().post('/preset-esercizi').set(auth(tF)).send({ nome: 'Push down', gruppo: 'TRICIPITI' });
+    expect(pushdown.body.gruppo).toBe('TRICIPITI');
+    const vecchio = await api().post('/preset-esercizi').set(auth(tF)).send({ nome: 'Braccia varie', gruppo: 'BRACCIA' });
+    expect(vecchio.status).toBe(201);
+    expect((await api().patch(`/preset-esercizi/${vecchio.body.id}`).set(auth(tF)).send({ gruppo: 'TRICIPITI' })).body.gruppo).toBe('TRICIPITI');
+  });
+
   it('gruppi inventati rifiutati', async () => {
     expect((await api().post('/preset-esercizi').set(auth(tF)).send({ nome: 'X', gruppo: 'COLLO' })).status).toBe(400);
     expect((await api().patch(`/preset-esercizi/${pancaId}`).set(auth(tF)).send({ gruppo: 'COLLO' })).status).toBe(400);

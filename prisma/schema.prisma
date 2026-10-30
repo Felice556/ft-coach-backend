@@ -361,7 +361,9 @@ enum GruppoMuscolare {
   PETTO
   DORSO
   SPALLE
-  BRACCIA
+  BRACCIA // vecchio gruppo unico: ora si usano BICIPITI e TRICIPITI (resta per gli esercizi non ancora divisi)
+  BICIPITI
+  TRICIPITI
   GAMBE
   ADDOME
   CARDIO

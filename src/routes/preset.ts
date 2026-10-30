@@ -6,7 +6,8 @@ import { leggiId, linkVideoSchema } from '../utils.js';
 
 const router = Router();
 
-const gruppoSchema = z.enum(['PETTO', 'DORSO', 'SPALLE', 'BRACCIA', 'GAMBE', 'ADDOME', 'CARDIO', 'ALTRO']);
+// BRACCIA resta accettato per gli esercizi salvati prima della divisione in bicipiti e tricipiti.
+const gruppoSchema = z.enum(['PETTO', 'DORSO', 'SPALLE', 'BICIPITI', 'TRICIPITI', 'BRACCIA', 'GAMBE', 'ADDOME', 'CARDIO', 'ALTRO']);
 
 const presetSchema = z.object({
   nome: z.string().trim().min(1).max(100),
