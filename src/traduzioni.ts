@@ -145,6 +145,7 @@ export const INGLESE: Record<string, string> = {
 
   // Tecniche di intensità
   'Pausa del rest-pause tra 5 e 120 secondi': 'Rest-pause break between 5 and 120 seconds',
+  'Cluster da 2 a 10 mini-serie': 'Cluster from 2 to 10 mini-sets',
 
   // Generici
   'Identificativo non valido': 'Invalid identifier',

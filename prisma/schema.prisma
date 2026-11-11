@@ -425,6 +425,9 @@ model Esercizio {
   // "+ rp" (rest-pause): arrivato a cedimento si ferma questi secondi e riprende con lo stesso peso.
   // Es. "6-9 + rp 15". null = niente rest-pause. Esclude "+ max" (o l'uno o l'altro).
   rpSecondi       Int?
+  // Cluster: mini-serie uguali con una breve pausa ("5+5+5+5" → repsTarget 5, cluster 4).
+  // La pausa tra le mini-serie è rpSecondi. null = niente cluster. Esclude intervallo e "+ max".
+  cluster         Int?
   recuperoSecondi Int
   // Esercizio tolto da una scheda: resta nel database (con le serie registrate), solo nascosto.
   archiviatoIl    DateTime?
@@ -452,6 +455,7 @@ model SerieExtra {
   repsMax         Int? // solo per gli intervalli, come sopra
   piuMax          Boolean @default(false) // "+ max" (drop set), come sopra
   rpSecondi       Int? // "+ rp" (rest-pause) con la sua pausa in secondi, come sopra
+  cluster         Int? // cluster: numero di mini-serie, come sopra
   recuperoSecondi Int
   nota            String? // es. "drop set", "a cedimento", "fermo 2s al petto"
 

@@ -23,12 +23,16 @@ const piuMaxSchema = piuMaxBase.default(false);
 // "+ rp" (rest-pause): pausa in secondi prima di riprendere con lo stesso peso ("6-9 + rp 15"). null = no.
 const rpBase = z.number().int().min(5, 'Pausa del rest-pause tra 5 e 120 secondi').max(120, 'Pausa del rest-pause tra 5 e 120 secondi').nullable();
 const rpSchema = rpBase.default(null);
+// Cluster: numero di mini-serie uguali ("5+5+5+5" → 4), con la pausa tra una e l'altra in rpSecondi. null = no.
+const clusterBase = z.number().int().min(2, 'Cluster da 2 a 10 mini-serie').max(10, 'Cluster da 2 a 10 mini-serie').nullable();
+const clusterSchema = clusterBase.default(null);
 
 const serieExtraSchema = z.object({
   reps: repsSchema,
   repsMax: repsMaxSchema,
   piuMax: piuMaxSchema,
   rpSecondi: rpSchema,
+  cluster: clusterSchema,
   recuperoSecondi: z.number().int().min(0).max(3600),
   nota: z.string().max(200).optional(),
 });
@@ -43,6 +47,7 @@ const esercizioSchema = z.object({
   repsMax: repsMaxSchema,
   piuMax: piuMaxSchema,
   rpSecondi: rpSchema,
+  cluster: clusterSchema,
   recuperoSecondi: z.number().int().min(0).max(3600), // 0 = nessun recupero
   serieExtra: z.array(serieExtraSchema).max(10).default([]),
   // Collegato all'esercizio successivo: SUPERSET (senza recupero in mezzo) o JUMPSET
@@ -66,6 +71,15 @@ function massimoValido(min: number | null, max: number | null): number | null {
 // Con il rest-pause il "+ max" si toglie: la tecnica finale è una sola.
 const piuMaxValido = (reps: number | null, piuMax: boolean | undefined, rpSecondi?: number | null) => reps != null && piuMax === true && rpSecondi == null;
 
+// Tecnica di una serie messa in ordine prima di salvarla.
+// Cluster solo con un numero di ripetizioni (non "Max"): niente intervallo né "+ max", e la pausa
+// c'è sempre (di base 15 secondi). Senza cluster valgono le regole di sopra.
+const PAUSA_PREDEFINITA = 15;
+function tecnica(reps: number | null, repsMax: number | null | undefined, piuMax: boolean | undefined, rpSecondi: number | null | undefined, cluster: number | null | undefined) {
+  if (reps != null && cluster != null) return { repsMax: null, piuMax: false, rpSecondi: rpSecondi ?? PAUSA_PREDEFINITA, cluster };
+  return { repsMax: massimoValido(reps, repsMax ?? null), piuMax: piuMaxValido(reps, piuMax, rpSecondi), rpSecondi: rpSecondi ?? null, cluster: null };
+}
+
 // Ogni lettura di una scheda porta con sé gli esercizi ATTIVI (non archiviati)
 // e le loro serie extra, sempre nello stesso ordine.
 const conEsercizi = {
@@ -83,9 +97,7 @@ function datiSerieExtra(extra: SerieExtraInput[]) {
   return extra.map((s, i) => ({
     ordine: i,
     reps: s.reps,
-    repsMax: massimoValido(s.reps, s.repsMax),
-    piuMax: piuMaxValido(s.reps, s.piuMax, s.rpSecondi),
-    rpSecondi: s.rpSecondi ?? null,
+    ...tecnica(s.reps, s.repsMax, s.piuMax, s.rpSecondi, s.cluster),
     recuperoSecondi: s.recuperoSecondi,
     nota: s.nota || null,
   }));
@@ -156,9 +168,7 @@ router.post('/schede', autentica, async (req, res) => {
         create: esercizi.map(({ serieExtra, ...es }, ordine) => ({
           ...es,
           ordine,
-          repsMax: massimoValido(es.repsTarget, es.repsMax),
-          piuMax: piuMaxValido(es.repsTarget, es.piuMax, es.rpSecondi),
-          rpSecondi: es.rpSecondi ?? null,
+          ...tecnica(es.repsTarget, es.repsMax, es.piuMax, es.rpSecondi, es.cluster),
           serieExtra: { create: datiSerieExtra(serieExtra) },
         })),
       },
@@ -325,9 +335,7 @@ router.put('/schede/:id', autentica, async (req, res) => {
         const campi = {
           ...dati,
           ordine,
-          repsMax: massimoValido(dati.repsTarget, dati.repsMax),
-          piuMax: piuMaxValido(dati.repsTarget, dati.piuMax, dati.rpSecondi),
-          rpSecondi: dati.rpSecondi ?? null,
+          ...tecnica(dati.repsTarget, dati.repsMax, dati.piuMax, dati.rpSecondi, dati.cluster),
           videoUrl: dati.videoUrl ?? null,
           descrizione: dati.descrizione ?? null,
         };
@@ -428,6 +436,7 @@ const modificaEsercizioSchema = esercizioSchema.partial().extend({
   repsMax: repsMaxBase.optional(),
   piuMax: piuMaxBase.optional(),
   rpSecondi: rpBase.optional(),
+  cluster: clusterBase.optional(),
   serieExtra: z.array(serieExtraSchema).max(10).optional(),
   collegamento: z.enum(['SUPERSET', 'JUMPSET']).nullable().optional(),
 });
@@ -455,14 +464,13 @@ router.put('/esercizi/:id', autentica, async (req, res) => {
   const max = campi.repsMax !== undefined ? campi.repsMax : esistente.repsMax;
   const piuMax = campi.piuMax !== undefined ? campi.piuMax : esistente.piuMax;
   const rpSecondi = campi.rpSecondi !== undefined ? campi.rpSecondi : esistente.rpSecondi;
+  const cluster = campi.cluster !== undefined ? campi.cluster : esistente.cluster;
 
   const esercizio = await prisma.esercizio.update({
     where: { id },
     data: {
       ...campi,
-      repsMax: massimoValido(min, max),
-      piuMax: piuMaxValido(min, piuMax, rpSecondi),
-      rpSecondi,
+      ...tecnica(min, max, piuMax, rpSecondi, cluster),
       ...(serieExtra ? { serieExtra: { deleteMany: {}, create: datiSerieExtra(serieExtra) } } : {}),
     },
     include: { serieExtra: { orderBy: { ordine: 'asc' } } },

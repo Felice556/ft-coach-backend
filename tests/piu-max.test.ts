@@ -89,3 +89,49 @@ describe('Rest-pause "+ rp"', () => {
   });
 });
 
+
+describe('Cluster "5+5+5+5"', () => {
+  it('si salva con mini-serie e pausa (di base 15 s); niente intervallo né + max; fuori da 2-10 rifiutato', async () => {
+    const esercizi = [
+      { nome: 'Pulldown corda', serieTarget: 3, repsTarget: 5, cluster: 4, rpSecondi: 10, recuperoSecondi: 120, serieExtra: [{ reps: 3, cluster: 3, recuperoSecondi: 60 }] },
+      { nome: 'Panca', serieTarget: 2, repsTarget: 6, repsMax: 9, piuMax: true, cluster: 3, recuperoSecondi: 120 },
+      { nome: 'Plank', serieTarget: 2, repsTarget: null, cluster: 3, recuperoSecondi: 60 },
+    ];
+    const r = await api().post('/schede').set(auth(tF)).send(schedaDiProva(ids.alessio.id, esercizi));
+    expect(r.status).toBe(201);
+    const [pulldown, panca, plank] = r.body.esercizi;
+    expect(pulldown).toMatchObject({ repsTarget: 5, cluster: 4, rpSecondi: 10, recuperoSecondi: 120 });
+    expect(pulldown.serieExtra[0]).toMatchObject({ reps: 3, cluster: 3, rpSecondi: 15 }); // pausa non scritta: 15 s
+    expect(panca).toMatchObject({ repsTarget: 6, repsMax: null, piuMax: false, cluster: 3, rpSecondi: 15 });
+    expect(plank).toMatchObject({ repsTarget: null, cluster: null }); // con "Max" il cluster non ha senso
+    // Il cliente lo vede
+    const delCliente = (await api().get('/schede').set(auth(await token('alessio@test.com')))).body[0];
+    expect(delCliente.esercizi[0]).toMatchObject({ cluster: 4, rpSecondi: 10 });
+    for (const cluster of [1, 11]) {
+      const no = await api().post('/schede').set(auth(tF)).send(schedaDiProva(ids.alessio.id, [{ ...esercizi[0], cluster, serieExtra: [] }]));
+      expect(no.status).toBe(400);
+    }
+  });
+
+  it('modifica: resta se non lo indichi, si toglie con null (e torna l’intervallo)', async () => {
+    const s = (await api().post('/schede').set(auth(tF)).send(schedaDiProva(ids.alessio.id, [
+      { nome: 'Pulldown corda', serieTarget: 3, repsTarget: 5, cluster: 4, rpSecondi: 10, recuperoSecondi: 120 },
+    ]))).body;
+    const id = s.esercizi[0].id;
+    expect((await api().put(`/esercizi/${id}`).set(auth(tF)).send({ recuperoSecondi: 90 })).body).toMatchObject({ cluster: 4, rpSecondi: 10, recuperoSecondi: 90 });
+    const tolto = (await api().put(`/esercizi/${id}`).set(auth(tF)).send({ cluster: null, rpSecondi: null, repsTarget: 8, repsMax: 12 })).body;
+    expect(tolto).toMatchObject({ cluster: null, rpSecondi: null, repsTarget: 8, repsMax: 12 });
+    // Modifica dell'intera scheda: il cluster si salva anche lì
+    const mod = await api().put(`/schede/${s.id}`).set(auth(tF)).send({
+      nome: s.nome,
+      esercizi: [{ id, nome: 'Pulldown corda', serieTarget: 3, repsTarget: 5, cluster: 5, rpSecondi: 20, recuperoSecondi: 120 }],
+    });
+    expect(mod.body.esercizi[0]).toMatchObject({ id, cluster: 5, rpSecondi: 20 });
+  });
+
+  it('chi si allena da solo può usare il cluster', async () => {
+    const r = await api().post('/schede').set(auth(tS)).send({ ...schedaDiProva(0, [{ nome: 'Curl', serieTarget: 2, repsTarget: 4, cluster: 3, recuperoSecondi: 90 }]), clienteId: undefined });
+    expect(r.status).toBe(201);
+    expect(r.body.esercizi[0]).toMatchObject({ cluster: 3, rpSecondi: 15 });
+  });
+});
