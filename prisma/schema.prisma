@@ -275,6 +275,11 @@ model PassiGiornalieri {
 enum TipoMisura {
   PESO // kg, lo inserisce il cliente
   MASSA_GRASSA // %, la inserisce il trainer
+  // Circonferenze in cm: le inserisce il trainer (o chi si allena da solo), come la massa grassa
+  TORACE
+  FIANCHI
+  BICIPITE
+  COSCIA
 }
 
 // Una misura del corpo in un giorno: al massimo una per tipo al giorno

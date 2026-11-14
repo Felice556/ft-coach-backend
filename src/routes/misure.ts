@@ -10,24 +10,30 @@ const router = Router();
 // Misure del corpo:
 // - PESO (kg): lo scrive il CLIENTE, per sé.
 // - MASSA_GRASSA (%): la scrive il TRAINER, per un cliente.
+// - Circonferenze in cm (TORACE, FIANCHI, BICIPITE, COSCIA): come la massa grassa.
 // Entrambi possono VEDERE tutte e due (il cliente solo le proprie; il trainer solo da quando
 // il cliente è collegato a lui). Chi si allena da solo inserisce anche la propria massa grassa.
 // Una misura per tipo al giorno: se si reinserisce lo stesso giorno, il valore viene corretto.
 
-type Tipo = 'PESO' | 'MASSA_GRASSA';
-const CHI_PUO_SCRIVERE: Record<Tipo, 'CLIENTE' | 'TRAINER'> = { PESO: 'CLIENTE', MASSA_GRASSA: 'TRAINER' };
+const TIPI = ['PESO', 'MASSA_GRASSA', 'TORACE', 'FIANCHI', 'BICIPITE', 'COSCIA'] as const;
+type Tipo = (typeof TIPI)[number];
+const CHI_PUO_SCRIVERE: Record<Tipo, 'CLIENTE' | 'TRAINER'> = { PESO: 'CLIENTE', MASSA_GRASSA: 'TRAINER', TORACE: 'TRAINER', FIANCHI: 'TRAINER', BICIPITE: 'TRAINER', COSCIA: 'TRAINER' };
 
 // Può scrivere/cancellare questo tipo di misura? La massa grassa la scrive il trainer,
 // oppure il cliente stesso se si allena da solo (non c'è nessun trainer a farlo per lui).
 async function puoScrivere(req: any, tipo: Tipo): Promise<boolean> {
   if (CHI_PUO_SCRIVERE[tipo] === req.ruolo) return true;
-  return tipo === 'MASSA_GRASSA' && req.ruolo === 'CLIENTE' && (await eAutonomo(req.userId));
+  return tipo !== 'PESO' && req.ruolo === 'CLIENTE' && (await eAutonomo(req.userId));
 }
 
 // Limiti realistici per scartare errori di battitura (es. 725 invece di 72,5).
 const LIMITI: Record<Tipo, { min: number; max: number; nome: string }> = {
   PESO: { min: 20, max: 350, nome: 'Il peso deve essere tra 20 e 350 kg' },
   MASSA_GRASSA: { min: 2, max: 70, nome: 'La massa grassa deve essere tra 2 e 70 %' },
+  TORACE: { min: 50, max: 200, nome: 'Il torace deve essere tra 50 e 200 cm' },
+  FIANCHI: { min: 50, max: 200, nome: 'I fianchi devono essere tra 50 e 200 cm' },
+  BICIPITE: { min: 15, max: 70, nome: 'Il bicipite deve essere tra 15 e 70 cm' },
+  COSCIA: { min: 25, max: 120, nome: 'La coscia deve essere tra 25 e 120 cm' },
 };
 
 // "2026-09-29" → Date del giorno. Niente date future né troppo vecchie.
@@ -42,7 +48,7 @@ const giornoSchema = z
   }, 'Data non valida o nel futuro');
 
 const misuraSchema = z.object({
-  tipo: z.enum(['PESO', 'MASSA_GRASSA']),
+  tipo: z.enum(TIPI),
   valore: z.number().finite(),
   data: giornoSchema,
   clienteId: z.number().int().positive().max(2147483647).optional(),
@@ -94,7 +100,7 @@ router.put('/misure', autentica, async (req, res) => {
 
   if (!(await puoScrivere(req, tipo))) {
     res.status(403).json({
-      errore: tipo === 'PESO' ? 'Il peso corporeo lo inserisce il cliente' : 'La massa grassa la inserisce il trainer',
+      errore: tipo === 'PESO' ? 'Il peso corporeo lo inserisce il cliente' : tipo === 'MASSA_GRASSA' ? 'La massa grassa la inserisce il trainer' : 'Le circonferenze le inserisce il trainer',
     });
     return;
   }

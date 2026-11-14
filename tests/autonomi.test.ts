@@ -76,6 +76,17 @@ describe('Iscrizione e schede personali', () => {
     expect((await api().post('/cardio/obiettivi').set(auth(tA)).send({ attivita: 'Corsa', minuti: 30, volteSettimana: 3 })).status).toBe(403);
     expect((await api().put('/misure').set(auth(tA)).send({ tipo: 'MASSA_GRASSA', valore: 18, data: oggi() })).status).toBe(403);
   });
+
+  it('circonferenze: le scrive il trainer (o chi si allena da solo), con limiti realistici', async () => {
+    for (const [tipo, valore] of [['TORACE', 102.5], ['FIANCHI', 96], ['BICIPITE', 38.2], ['COSCIA', 58]] as const) {
+      expect((await api().put('/misure').set(auth(tS)).send({ tipo, valore, data: oggi() })).body).toMatchObject({ tipo, valore });
+      expect((await api().put('/misure').set(auth(tA)).send({ tipo, valore, data: oggi() })).status).toBe(403);
+    }
+    expect((await api().put('/misure').set(auth(tS)).send({ tipo: 'BICIPITE', valore: 380, data: oggi() })).status).toBe(400);
+    expect((await api().put('/misure').set(auth(tS)).send({ tipo: 'VITA', valore: 80, data: oggi() })).status).toBe(400);
+    const mie = (await api().get('/misure').set(auth(tS))).body;
+    expect(mie.filter((m: { tipo: string }) => ['TORACE', 'FIANCHI', 'BICIPITE', 'COSCIA'].includes(m.tipo))).toHaveLength(4);
+  });
 });
 
 describe('Collegarsi a un trainer e lasciarlo', () => {
