@@ -28,8 +28,16 @@ describe('Peso corporeo (lo scrive il cliente)', () => {
     expect(elenco[0].data.startsWith('2026-09-01')).toBe(true); // dal più vecchio
   });
 
-  it('il trainer non inserisce il peso al posto del cliente', async () => {
-    expect((await salva(tF, { tipo: 'PESO', valore: 80, data: oggi, clienteId: ids.alessio.id })).status).toBe(403);
+  it('anche il trainer può inserire, correggere e cancellare il peso di un suo cliente', async () => {
+    const r = await salva(tF, { tipo: 'PESO', valore: 80.4, data: oggi, clienteId: ids.alessio.id });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ tipo: 'PESO', valore: 80.4, clienteId: ids.alessio.id });
+    // il cliente lo vede
+    expect((await api().get('/misure').set(auth(tA))).body.some((m: { id: number }) => m.id === r.body.id)).toBe(true);
+    // senza clienteId o per un cliente non suo: no
+    expect((await salva(tF, { tipo: 'PESO', valore: 80, data: oggi })).status).toBe(400);
+    expect((await salva(tF, { tipo: 'PESO', valore: 999, data: oggi, clienteId: ids.alessio.id })).status).toBe(400);
+    expect((await api().delete(`/misure/${r.body.id}`).set(auth(tF))).status).toBe(204);
   });
 
   it('un cliente non può scrivere sul profilo di un altro (il clienteId viene ignorato)', async () => {
@@ -93,10 +101,10 @@ describe('Cancellare una misura sbagliata', () => {
     const grasso = tutte.find((m: { tipo: string }) => m.tipo === 'MASSA_GRASSA');
 
     expect((await api().delete(`/misure/${peso.id}`).set(auth(tG))).status).toBe(404);
-    expect((await api().delete(`/misure/${peso.id}`).set(auth(tF))).status).toBe(404);
     expect((await api().delete(`/misure/${grasso.id}`).set(auth(tA))).status).toBe(404);
 
-    expect((await api().delete(`/misure/${peso.id}`).set(auth(tA))).status).toBe(204);
+    // il peso lo cancella il cliente oppure il suo trainer
+    expect((await api().delete(`/misure/${peso.id}`).set(auth(tF))).status).toBe(204);
     expect((await api().delete(`/misure/${grasso.id}`).set(auth(tF))).status).toBe(204);
   });
 });

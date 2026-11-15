@@ -8,7 +8,7 @@ import { leggiId, leggiIdFacoltativo } from '../utils.js';
 const router = Router();
 
 // Misure del corpo:
-// - PESO (kg): lo scrive il CLIENTE, per sé.
+// - PESO (kg): lo scrive il CLIENTE per sé, oppure il TRAINER per un suo cliente.
 // - MASSA_GRASSA (%): la scrive il TRAINER, per un cliente.
 // - Circonferenze in cm (TORACE, FIANCHI, BICIPITE, COSCIA): come la massa grassa.
 // Entrambi possono VEDERE tutte e due (il cliente solo le proprie; il trainer solo da quando
@@ -23,6 +23,7 @@ const CHI_PUO_SCRIVERE: Record<Tipo, 'CLIENTE' | 'TRAINER'> = { PESO: 'CLIENTE',
 // oppure il cliente stesso se si allena da solo (non c'è nessun trainer a farlo per lui).
 async function puoScrivere(req: any, tipo: Tipo): Promise<boolean> {
   if (CHI_PUO_SCRIVERE[tipo] === req.ruolo) return true;
+  if (tipo === 'PESO' && req.ruolo === 'TRAINER') return true; // il peso lo può scrivere anche il trainer (es. pesato in palestra)
   return tipo !== 'PESO' && req.ruolo === 'CLIENTE' && (await eAutonomo(req.userId));
 }
 
