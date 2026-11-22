@@ -433,6 +433,10 @@ model Esercizio {
   // Cluster: mini-serie uguali con una breve pausa ("5+5+5+5" → repsTarget 5, cluster 4).
   // La pausa tra le mini-serie è rpSecondi. null = niente cluster. Esclude intervallo e "+ max".
   cluster         Int?
+  // EMOM: ogni emomSecondi secondi parte un giro di repsTarget ripetizioni (null = Max);
+  // serieTarget = numero di giri (fino a 60). 60 = EMOM classico, 30 = ogni 30 secondi.
+  // Esclude intervallo, "+ max", rest-pause, cluster e serie extra. null = esercizio normale.
+  emomSecondi     Int?
   recuperoSecondi Int
   // Esercizio tolto da una scheda: resta nel database (con le serie registrate), solo nascosto.
   archiviatoIl    DateTime?

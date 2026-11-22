@@ -151,6 +151,8 @@ export const INGLESE: Record<string, string> = {
   // Tecniche di intensità
   'Pausa del rest-pause tra 5 e 120 secondi': 'Rest-pause break between 5 and 120 seconds',
   'Cluster da 2 a 10 mini-serie': 'Cluster from 2 to 10 mini-sets',
+  'EMOM: un giro ogni 10-300 secondi': 'EMOM: one round every 10-300 seconds',
+  'Massimo 20 serie per esercizio (fino a 60 giri solo con l’EMOM)': 'Up to 20 sets per exercise (up to 60 rounds only with EMOM)',
 
   // Generici
   'Identificativo non valido': 'Invalid identifier',

@@ -135,3 +135,45 @@ describe('Cluster "5+5+5+5"', () => {
     expect(r.body.esercizi[0]).toMatchObject({ cluster: 3, rpSecondi: 15 });
   });
 });
+
+describe('EMOM', () => {
+  it('si salva con un giro ogni N secondi; niente altre tecniche né serie extra; fino a 60 giri', async () => {
+    const r = await api().post('/schede').set(auth(tF)).send(schedaDiProva(ids.alessio.id, [
+      { nome: 'Push up', serieTarget: 16, repsTarget: 8, emomSecondi: 30, repsMax: 10, piuMax: true, rpSecondi: 15, cluster: 3, recuperoSecondi: 120, serieExtra: [{ reps: 5, recuperoSecondi: 60 }] },
+      { nome: 'Trazioni', serieTarget: 10, repsTarget: null, emomSecondi: 60, recuperoSecondi: 90 },
+    ]));
+    expect(r.status).toBe(201);
+    const [push, trazioni] = r.body.esercizi;
+    expect(push).toMatchObject({ serieTarget: 16, repsTarget: 8, emomSecondi: 30, repsMax: null, piuMax: false, rpSecondi: null, cluster: null });
+    expect(push.serieExtra).toHaveLength(0);
+    expect(trazioni).toMatchObject({ repsTarget: null, emomSecondi: 60 });
+    const delCliente = (await api().get('/schede').set(auth(await token('alessio@test.com')))).body[0];
+    expect(delCliente.esercizi[0]).toMatchObject({ emomSecondi: 30 });
+    // 40 giri sì con l'EMOM, 21 serie no senza
+    expect((await api().post('/schede').set(auth(tF)).send(schedaDiProva(ids.alessio.id, [{ nome: 'Push up', serieTarget: 40, repsTarget: 5, emomSecondi: 30, recuperoSecondi: 60 }]))).status).toBe(201);
+    expect((await api().post('/schede').set(auth(tF)).send(schedaDiProva(ids.alessio.id, [{ nome: 'Panca', serieTarget: 21, repsTarget: 5, recuperoSecondi: 60 }]))).status).toBe(400);
+    for (const emomSecondi of [5, 301]) {
+      expect((await api().post('/schede').set(auth(tF)).send(schedaDiProva(ids.alessio.id, [{ nome: 'Push up', serieTarget: 10, repsTarget: 5, emomSecondi, recuperoSecondi: 60 }]))).status).toBe(400);
+    }
+  });
+
+  it('modifica: resta se non lo indichi, si toglie con null; con l’EMOM spariscono le serie extra', async () => {
+    const s = (await api().post('/schede').set(auth(tF)).send(schedaDiProva(ids.alessio.id, [
+      { nome: 'Squat', serieTarget: 3, repsTarget: 8, recuperoSecondi: 120, serieExtra: [{ reps: 5, recuperoSecondi: 60 }] },
+    ]))).body;
+    const id = s.esercizi[0].id;
+    const emom = (await api().put(`/esercizi/${id}`).set(auth(tF)).send({ emomSecondi: 60, serieTarget: 30 })).body;
+    expect(emom).toMatchObject({ emomSecondi: 60, serieTarget: 30 });
+    expect(emom.serieExtra).toHaveLength(0);
+    expect((await api().put(`/esercizi/${id}`).set(auth(tF)).send({ recuperoSecondi: 90 })).body).toMatchObject({ emomSecondi: 60, recuperoSecondi: 90 });
+    // tornando normale, 30 serie sono troppe
+    expect((await api().put(`/esercizi/${id}`).set(auth(tF)).send({ emomSecondi: null })).status).toBe(400);
+    expect((await api().put(`/esercizi/${id}`).set(auth(tF)).send({ emomSecondi: null, serieTarget: 4 })).body).toMatchObject({ emomSecondi: null, serieTarget: 4 });
+    const mod = await api().put(`/schede/${s.id}`).set(auth(tF)).send({
+      nome: s.nome,
+      esercizi: [{ id, nome: 'Squat', serieTarget: 20, repsTarget: 5, emomSecondi: 30, recuperoSecondi: 120, serieExtra: [{ reps: 5, recuperoSecondi: 60 }] }],
+    });
+    expect(mod.body.esercizi[0]).toMatchObject({ id, emomSecondi: 30, serieTarget: 20 });
+    expect(mod.body.esercizi[0].serieExtra).toHaveLength(0);
+  });
+});

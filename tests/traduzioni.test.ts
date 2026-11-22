@@ -20,7 +20,7 @@ function messaggiNelCodice(): string[] {
     if (/[\\/]email(-testi)?\.ts$/.test(f)) continue;
     const codice = fs
       .readFileSync(f, 'utf8')
-      .split('\n')
+      .split(/\r?\n/) // anche con i fine riga di Windows (CRLF): altrimenti i commenti non si tolgono
       .map((riga) => riga.replace(/^\s*\/\/.*$/, '').replace(/\s\/\/\s.*$/, ''))
       .join('\n');
     for (const m of codice.matchAll(/'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"/g)) {
