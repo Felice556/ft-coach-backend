@@ -437,6 +437,9 @@ model Esercizio {
   // serieTarget = numero di giri (fino a 60). 60 = EMOM classico, 30 = ogni 30 secondi.
   // Esclude intervallo, "+ max", rest-pause, cluster e serie extra. null = esercizio normale.
   emomSecondi     Int?
+  // Cluster a totale: peso da repsTarget RM, a cedimento e poi pause da rpSecondi (15 di base)
+  // finché le ripetizioni sommate arrivano a clusterTotale. null = esercizio normale.
+  clusterTotale   Int?
   recuperoSecondi Int
   // Esercizio tolto da una scheda: resta nel database (con le serie registrate), solo nascosto.
   archiviatoIl    DateTime?

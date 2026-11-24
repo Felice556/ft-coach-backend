@@ -152,6 +152,9 @@ export const INGLESE: Record<string, string> = {
   'Pausa del rest-pause tra 5 e 120 secondi': 'Rest-pause break between 5 and 120 seconds',
   'Cluster da 2 a 10 mini-serie': 'Cluster from 2 to 10 mini-sets',
   'EMOM: un giro ogni 10-300 secondi': 'EMOM: one round every 10-300 seconds',
+  'Cluster a totale: da 10 a 100 ripetizioni': 'Total-reps cluster: from 10 to 100 reps',
+  'Scegli EMOM oppure cluster a totale, non tutti e due': 'Choose EMOM or total-reps cluster, not both',
+  'Cluster a totale: nelle reps scrivi il peso di riferimento (es. 12), più basso del totale': 'Total-reps cluster: in reps write the reference load (e.g. 12), lower than the total',
   'Massimo 20 serie per esercizio (fino a 60 giri solo con l’EMOM)': 'Up to 20 sets per exercise (up to 60 rounds only with EMOM)',
 
   // Generici

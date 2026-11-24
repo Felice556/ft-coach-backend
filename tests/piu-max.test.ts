@@ -177,3 +177,40 @@ describe('EMOM', () => {
     expect(mod.body.esercizi[0].serieExtra).toHaveLength(0);
   });
 });
+
+describe('Cluster a totale', () => {
+  it('si salva con totale, RM e pausa (15s di base); niente altre tecniche né serie extra', async () => {
+    const r = await api().post('/schede').set(auth(tF)).send(schedaDiProva(ids.alessio.id, [
+      { nome: 'Leg extension', serieTarget: 2, repsTarget: 12, clusterTotale: 30, piuMax: true, cluster: 4, recuperoSecondi: 120, serieExtra: [{ reps: 5, recuperoSecondi: 60 }] },
+      { nome: 'Curl', serieTarget: 1, repsTarget: 10, clusterTotale: 25, rpSecondi: 20, recuperoSecondi: 90 },
+    ]));
+    expect(r.status).toBe(201);
+    const [le, curl] = r.body.esercizi;
+    expect(le).toMatchObject({ clusterTotale: 30, repsTarget: 12, rpSecondi: 15, piuMax: false, cluster: null, emomSecondi: null });
+    expect(le.serieExtra).toHaveLength(0);
+    expect(curl).toMatchObject({ clusterTotale: 25, rpSecondi: 20 });
+    const delCliente = (await api().get('/schede').set(auth(await token('alessio@test.com')))).body[0];
+    expect(delCliente.esercizi[0]).toMatchObject({ clusterTotale: 30 });
+  });
+
+  it('rifiuta: totale fuori da 10-100, reps mancanti o non più basse del totale, insieme all’EMOM', async () => {
+    const prova = (e: object) => api().post('/schede').set(auth(tF)).send(schedaDiProva(ids.alessio.id, [{ nome: 'X', serieTarget: 2, recuperoSecondi: 60, ...e }]));
+    expect((await prova({ repsTarget: 5, clusterTotale: 8 })).status).toBe(400);
+    expect((await prova({ repsTarget: 12, clusterTotale: 120 })).status).toBe(400);
+    expect((await prova({ repsTarget: null, clusterTotale: 30 })).status).toBe(400);
+    expect((await prova({ repsTarget: 30, clusterTotale: 30 })).status).toBe(400);
+    expect((await prova({ repsTarget: 12, clusterTotale: 30, emomSecondi: 60 })).status).toBe(400);
+  });
+
+  it('modifica: si attiva e si toglie; con il cluster a totale spariscono le serie extra', async () => {
+    const s = (await api().post('/schede').set(auth(tF)).send(schedaDiProva(ids.alessio.id, [
+      { nome: 'Pressa', serieTarget: 3, repsTarget: 12, recuperoSecondi: 120, serieExtra: [{ reps: 8, recuperoSecondi: 60 }] },
+    ]))).body;
+    const id = s.esercizi[0].id;
+    const on = (await api().put(`/esercizi/${id}`).set(auth(tF)).send({ clusterTotale: 30 })).body;
+    expect(on).toMatchObject({ clusterTotale: 30, rpSecondi: 15 });
+    expect(on.serieExtra).toHaveLength(0);
+    expect((await api().put(`/esercizi/${id}`).set(auth(tF)).send({ recuperoSecondi: 90 })).body).toMatchObject({ clusterTotale: 30, recuperoSecondi: 90 });
+    expect((await api().put(`/esercizi/${id}`).set(auth(tF)).send({ clusterTotale: null, rpSecondi: null })).body).toMatchObject({ clusterTotale: null, rpSecondi: null });
+  });
+});

@@ -31,6 +31,11 @@ const clusterSchema = clusterBase.default(null);
 // Esclude intervallo, "+ max", rest-pause, cluster e serie extra. null = esercizio normale.
 const emomBase = z.number().int().min(10, 'EMOM: un giro ogni 10-300 secondi').max(300, 'EMOM: un giro ogni 10-300 secondi').nullable();
 const emomSchema = emomBase.default(null);
+// Cluster a totale: con il peso da repsTarget RM si va a cedimento, poi pause da rpSecondi (15 di base)
+// finché le ripetizioni sommate arrivano a clusterTotale. Ogni serie è un cluster. null = esercizio normale.
+const clusterTotaleBase = z.number().int().min(10, 'Cluster a totale: da 10 a 100 ripetizioni').max(100, 'Cluster a totale: da 10 a 100 ripetizioni').nullable();
+const clusterTotaleSchema = clusterTotaleBase.default(null);
+export const PAUSA_CLUSTER_TOTALE = 15;
 const MAX_SERIE = 20; // serie normali
 const MAX_GIRI_EMOM = 60; // es. 30 minuti ogni 30 secondi
 
@@ -56,6 +61,7 @@ const esercizioSchema = z.object({
   rpSecondi: rpSchema,
   cluster: clusterSchema,
   emomSecondi: emomSchema,
+  clusterTotale: clusterTotaleSchema,
   recuperoSecondi: z.number().int().min(0).max(3600), // 0 = nessun recupero
   serieExtra: z.array(serieExtraSchema).max(10).default([]),
   // Collegato all'esercizio successivo: SUPERSET (senza recupero in mezzo) o JUMPSET
@@ -89,10 +95,25 @@ function tecnica(reps: number | null, repsMax: number | null | undefined, piuMax
 }
 
 // Tecnica di un esercizio: con l'EMOM nessun'altra tecnica, altrimenti le regole di tecnica().
-function tecnicaEsercizio(es: { repsTarget: number | null; repsMax?: number | null; piuMax?: boolean; rpSecondi?: number | null; cluster?: number | null; emomSecondi?: number | null }) {
-  if (es.emomSecondi != null) return { repsMax: null, piuMax: false, rpSecondi: null, cluster: null, emomSecondi: es.emomSecondi };
-  return { ...tecnica(es.repsTarget, es.repsMax, es.piuMax, es.rpSecondi, es.cluster), emomSecondi: null };
+function tecnicaEsercizio(es: { repsTarget: number | null; repsMax?: number | null; piuMax?: boolean; rpSecondi?: number | null; cluster?: number | null; emomSecondi?: number | null; clusterTotale?: number | null }) {
+  if (es.emomSecondi != null) return { repsMax: null, piuMax: false, rpSecondi: null, cluster: null, emomSecondi: es.emomSecondi, clusterTotale: null };
+  if (es.clusterTotale != null)
+    return { repsMax: null, piuMax: false, rpSecondi: es.rpSecondi ?? PAUSA_CLUSTER_TOTALE, cluster: null, emomSecondi: null, clusterTotale: es.clusterTotale };
+  return { ...tecnica(es.repsTarget, es.repsMax, es.piuMax, es.rpSecondi, es.cluster), emomSecondi: null, clusterTotale: null };
 }
+
+// Cluster a totale: servono le reps di riferimento (il peso da N RM), più basse del totale; niente EMOM insieme.
+function erroreClusterTotale(esercizi: { repsTarget?: number | null; emomSecondi?: number | null; clusterTotale?: number | null }[]): string | null {
+  for (const e of esercizi) {
+    if (e.clusterTotale == null) continue;
+    if (e.emomSecondi != null) return 'Scegli EMOM oppure cluster a totale, non tutti e due';
+    if (e.repsTarget == null || e.repsTarget >= e.clusterTotale) return 'Cluster a totale: nelle reps scrivi il peso di riferimento (es. 12), più basso del totale';
+  }
+  return null;
+}
+
+// Serie extra solo per gli esercizi normali (non con EMOM o cluster a totale)
+const senzaExtra = (e: { emomSecondi?: number | null; clusterTotale?: number | null }) => e.emomSecondi != null || e.clusterTotale != null;
 
 // Più di 20 serie solo per i giri di un EMOM: messaggio d'errore, oppure null se va tutto bene.
 function troppeSerie(esercizi: { serieTarget?: number; emomSecondi?: number | null }[]): string | null {
@@ -155,7 +176,7 @@ router.post('/schede', autentica, async (req, res) => {
   }
   const { nome } = risultato.data;
   const esercizi = senzaCollegamentoFinale(risultato.data.esercizi);
-  const erroreSerie = troppeSerie(esercizi);
+  const erroreSerie = troppeSerie(esercizi) ?? erroreClusterTotale(esercizi);
   if (erroreSerie) {
     res.status(400).json({ errore: erroreSerie });
     return;
@@ -194,7 +215,7 @@ router.post('/schede', autentica, async (req, res) => {
           ...es,
           ordine,
           ...tecnicaEsercizio(es),
-          serieExtra: { create: datiSerieExtra(es.emomSecondi != null ? [] : serieExtra) },
+          serieExtra: { create: datiSerieExtra(senzaExtra(es) ? [] : serieExtra) },
         })),
       },
     },
@@ -295,7 +316,7 @@ router.put('/schede/:id', autentica, async (req, res) => {
   // Solo il trainer sposta una scheda a un altro cliente; chi si allena da solo non ha nessuno a cui darla.
   const clienteId = (req as any).ruolo === 'TRAINER' ? risultato.data.clienteId : undefined;
   const esercizi = risultato.data.esercizi && senzaCollegamentoFinale(risultato.data.esercizi);
-  const erroreSerie = esercizi ? troppeSerie(esercizi) : null;
+  const erroreSerie = esercizi ? (troppeSerie(esercizi) ?? erroreClusterTotale(esercizi)) : null;
   if (erroreSerie) {
     res.status(400).json({ errore: erroreSerie });
     return;
@@ -360,7 +381,7 @@ router.put('/schede/:id', autentica, async (req, res) => {
       }
 
       for (const [ordine, { id: esercizioId, serieExtra: extraMandate, ...dati }] of esercizi.entries()) {
-        const serieExtra = dati.emomSecondi != null ? [] : extraMandate; // l'EMOM non ha serie extra
+        const serieExtra = senzaExtra(dati) ? [] : extraMandate; // EMOM e cluster a totale non hanno serie extra
         // Campi opzionali svuotati → null, altrimenti Prisma lascerebbe il vecchio valore.
         // L'ordine è la posizione nell'elenco mandato: così si salva anche il riordino.
         const campi = {
@@ -469,6 +490,7 @@ const modificaEsercizioSchema = esercizioSchema.partial().extend({
   rpSecondi: rpBase.optional(),
   cluster: clusterBase.optional(),
   emomSecondi: emomBase.optional(),
+  clusterTotale: clusterTotaleBase.optional(),
   serieExtra: z.array(serieExtraSchema).max(10).optional(),
   collegamento: z.enum(['SUPERSET', 'JUMPSET']).nullable().optional(),
 });
@@ -498,19 +520,21 @@ router.put('/esercizi/:id', autentica, async (req, res) => {
   const rpSecondi = campi.rpSecondi !== undefined ? campi.rpSecondi : esistente.rpSecondi;
   const cluster = campi.cluster !== undefined ? campi.cluster : esistente.cluster;
   const emomSecondi = campi.emomSecondi !== undefined ? campi.emomSecondi : esistente.emomSecondi;
-  const erroreSerie = troppeSerie([{ serieTarget: campi.serieTarget ?? esistente.serieTarget, emomSecondi }]);
+  const clusterTotale = campi.clusterTotale !== undefined ? campi.clusterTotale : esistente.clusterTotale;
+  const erroreSerie =
+    troppeSerie([{ serieTarget: campi.serieTarget ?? esistente.serieTarget, emomSecondi }]) ?? erroreClusterTotale([{ repsTarget: min, emomSecondi, clusterTotale }]);
   if (erroreSerie) {
     res.status(400).json({ errore: erroreSerie });
     return;
   }
   // Con l'EMOM le serie extra si tolgono (anche quelle che c'erano).
-  const extra = emomSecondi != null ? [] : serieExtra;
+  const extra = senzaExtra({ emomSecondi, clusterTotale }) ? [] : serieExtra;
 
   const esercizio = await prisma.esercizio.update({
     where: { id },
     data: {
       ...campi,
-      ...tecnicaEsercizio({ repsTarget: min, repsMax: max, piuMax, rpSecondi, cluster, emomSecondi }),
+      ...tecnicaEsercizio({ repsTarget: min, repsMax: max, piuMax, rpSecondi, cluster, emomSecondi, clusterTotale }),
       ...(extra ? { serieExtra: { deleteMany: {}, create: datiSerieExtra(extra) } } : {}),
     },
     include: { serieExtra: { orderBy: { ordine: 'asc' } } },
