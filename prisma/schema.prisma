@@ -101,6 +101,13 @@ model User {
   consensoDiarioIl DateTime?
   diario           GiornoDiario[]
 
+  // "Guarda le mie note" (solo CLIENTI con un trainer): il cliente chiede al trainer di leggere le note
+  // che ha scritto. richiestaNoteIl = quando l'ha chiesto (null = nessuna richiesta aperta), con un
+  // messaggio facoltativo. Il trainer la vede sul nome del cliente e tocca "Fatto": allora noteVisteIl.
+  richiestaNoteIl    DateTime?
+  richiestaNoteTesto String?
+  noteVisteIl        DateTime?
+
   // Programmi Liftio "in arrivo" per cui ha chiesto di essere avvisato.
   avvisiProgrammi AvvisoProgramma[]
 

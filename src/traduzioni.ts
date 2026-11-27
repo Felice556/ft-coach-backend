@@ -8,6 +8,7 @@ import { NextFunction, Request, Response } from 'express';
 // Testo italiano → testo inglese. Un test (tests/traduzioni.test.ts) controlla che ogni messaggio
 // scritto nel codice sia qui: se ne aggiungi uno nuovo e dimentichi la traduzione, il test fallisce.
 export const INGLESE: Record<string, string> = {
+  'Non hai un trainer a cui chiederlo': "You don't have a trainer to ask",
   // Accesso e account
   'Credenziali non valide': 'Invalid email or password',
   'Email già registrata: se è la tua, accedi o usa "Password dimenticata?"': 'Email already registered: if it’s yours, sign in or use "Forgot your password?"',

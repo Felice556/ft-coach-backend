@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { prisma } from '../prisma.js';
 import { autentica, richiedeRuolo, creaToken, motivoSospensione } from '../middleware/auth.js';
 import { leggiId } from '../utils.js';
-import { limiteCambioPassword, limiteCollegamento, limiteLoginPerEmail, limiteLoginPerIp, limiteRegistrazione } from '../limiti.js';
+import { limiteCambioPassword, limiteCollegamento, limiteLoginPerEmail, limiteLoginPerIp, limiteRegistrazione, limiteRichiestaNote } from '../limiti.js';
 import { normalizzaCodice } from './inviti.js';
 import { clienteDelTrainer, LIMITE_SCHEDE_GRATIS, schedePersonali } from '../proprieta.js';
 import { cancellaAccount } from '../elimina-account.js';
@@ -287,7 +287,7 @@ router.put('/clienti/:id/email', autentica, richiedeRuolo('TRAINER'), async (req
 router.get('/clienti', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
   const clienti = await prisma.user.findMany({
     where: { ruolo: 'CLIENTE', trainerId: (req as any).userId as number },
-    select: { id: true, nome: true, email: true, sospeso: true, emailConfermataIl: true }, // mai la password
+    select: { id: true, nome: true, email: true, sospeso: true, emailConfermataIl: true, richiestaNoteIl: true, richiestaNoteTesto: true }, // mai la password
     orderBy: { nome: 'asc' },
   });
   // emailConfermata: il trainer vede chi non ha ancora confermato (spesso un errore di battitura).
@@ -318,15 +318,19 @@ for (const [azione, sospeso] of [['sospendi', true], ['riattiva', false]] as con
 async function datiMe(id: number) {
   const utente = await prisma.user.findUnique({
     where: { id },
-    select: { id: true, nome: true, email: true, ruolo: true, admin: true, approvato: true, emailConfermataIl: true, trainer: { select: { nome: true } } }, // mai la password
+    select: { id: true, nome: true, email: true, ruolo: true, admin: true, approvato: true, emailConfermataIl: true, trainer: { select: { nome: true } }, richiestaNoteIl: true, richiestaNoteTesto: true, noteVisteIl: true }, // mai la password
   });
   if (!utente) return null;
-  const { approvato, trainer, emailConfermataIl, ...resto } = utente;
+  const { approvato, trainer, emailConfermataIl, richiestaNoteIl, richiestaNoteTesto, noteVisteIl, ...resto } = utente;
   const base = { ...resto, emailConfermata: emailConfermataIl !== null, inAttesa: utente.ruolo === 'TRAINER' && !approvato };
   if (utente.ruolo !== 'CLIENTE') return base;
   return {
     ...base,
     trainer: trainer ? { nome: trainer.nome } : null, // null = si allena da solo
+    // "Guarda le mie note": richiesta aperta (o null) e quando il trainer le ha viste l'ultima volta
+    richiestaNoteIl,
+    richiestaNoteTesto,
+    noteVisteIl,
     schedePersonali: await prisma.scheda.count({ where: schedePersonali(id) }), // anche archiviate o in pausa
     limiteSchede: LIMITE_SCHEDE_GRATIS,
   };
@@ -366,7 +370,8 @@ router.post('/me/trainer', limiteCollegamento, autentica, richiedeRuolo('CLIENTE
         data: { usatoIl: new Date(), usatoDaId: id },
       });
       if (count !== 1) throw new Error('INVITO_NON_VALIDO');
-      await tx.user.update({ where: { id }, data: { trainerId: invito.trainerId, collegatoIl: new Date() } });
+      // nuovo trainer: una richiesta "guarda le mie note" fatta al trainer di prima non vale più
+      await tx.user.update({ where: { id }, data: { trainerId: invito.trainerId, collegatoIl: new Date(), ...SENZA_RICHIESTA_NOTE } });
     });
   } catch (err) {
     if (err instanceof Error && err.message === 'INVITO_NON_VALIDO') {
@@ -406,8 +411,57 @@ router.delete('/me/trainer', limiteCambioPassword, autentica, richiedeRuolo('CLI
     res.status(400).json({ errore: 'Ti alleni già da solo' });
     return;
   }
-  await prisma.user.update({ where: { id }, data: { trainerId: null, collegatoIl: null } });
+  await prisma.user.update({ where: { id }, data: { trainerId: null, collegatoIl: null, ...SENZA_RICHIESTA_NOTE } });
   res.json(await datiMe(id));
+});
+
+// ---------- "Guarda le mie note": il cliente chiede al trainer di leggere le sue note ----------
+
+const SENZA_RICHIESTA_NOTE = { richiestaNoteIl: null, richiestaNoteTesto: null, noteVisteIl: null };
+
+// Il cliente manda (o aggiorna) la richiesta, con un messaggio facoltativo. Solo con un trainer.
+router.post('/me/richiesta-note', limiteRichiestaNote, autentica, richiedeRuolo('CLIENTE'), async (req, res) => {
+  const risultato = z
+    .object({ messaggio: z.string().trim().max(300, 'Il messaggio può avere al massimo 300 caratteri').optional().nullable() })
+    .safeParse(req.body ?? {});
+  if (!risultato.success) {
+    res.status(400).json({ errori: risultato.error.issues });
+    return;
+  }
+  const id = (req as any).userId as number;
+  const io = await prisma.user.findUnique({ where: { id }, select: { trainerId: true } });
+  if (!io?.trainerId) {
+    res.status(400).json({ errore: 'Non hai un trainer a cui chiederlo' });
+    return;
+  }
+  await prisma.user.update({
+    where: { id },
+    data: { richiestaNoteIl: new Date(), richiestaNoteTesto: risultato.data.messaggio || null, noteVisteIl: null },
+  });
+  res.json(await datiMe(id));
+});
+
+// Il cliente annulla la sua richiesta (es. toccata per sbaglio).
+router.delete('/me/richiesta-note', autentica, richiedeRuolo('CLIENTE'), async (req, res) => {
+  const id = (req as any).userId as number;
+  await prisma.user.update({ where: { id }, data: { richiestaNoteIl: null, richiestaNoteTesto: null } });
+  res.json(await datiMe(id));
+});
+
+// Il trainer ha guardato le note di un SUO cliente: la richiesta si chiude e il cliente vede "le ha viste".
+router.post('/clienti/:id/note-viste', autentica, richiedeRuolo('TRAINER'), async (req, res) => {
+  const id = leggiId(req.params.id, res);
+  if (id === null) return;
+  if (!(await trovaCliente(req, id))) {
+    res.status(404).json({ errore: 'Cliente non trovato' });
+    return;
+  }
+  const aggiornato = await prisma.user.update({
+    where: { id },
+    data: { richiestaNoteIl: null, richiestaNoteTesto: null, noteVisteIl: new Date() },
+    select: { id: true, richiestaNoteIl: true, noteVisteIl: true },
+  });
+  res.json(aggiornato);
 });
 
 // ---------- Eliminare il proprio account ----------
